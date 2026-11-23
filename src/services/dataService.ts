@@ -91,8 +91,8 @@ async function optimizeImageForUpload(file: File): Promise<File> {
   if (type === 'image/svg+xml' || type === 'image/gif' || !type.startsWith('image/')) {
     return file;
   }
-  const maxBytesBeforeCompress = 550 * 1024;
-  const maxDim = 1600;
+  const maxBytesBeforeCompress = 2.2 * 1024 * 1024;
+  const maxDim = 2048;
 
   try {
     const objectUrl = URL.createObjectURL(file);
@@ -127,7 +127,7 @@ async function optimizeImageForUpload(file: File): Promise<File> {
 
     const isAlphaCandidate = type === 'image/png' || type === 'image/webp';
     const targetMime = isAlphaCandidate ? 'image/webp' : 'image/jpeg';
-    const quality = isAlphaCandidate ? 0.9 : 0.88;
+    const quality = isAlphaCandidate ? 0.93 : 0.9;
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, targetMime, quality),

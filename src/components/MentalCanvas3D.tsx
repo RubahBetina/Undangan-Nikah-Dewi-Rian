@@ -187,15 +187,83 @@ function buildProcessedTexture(
   const naturalH = img.naturalHeight || 512;
   const aspect = naturalW / Math.max(1, naturalH);
 
-  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
-  const targetCap = isMobileViewport ? 1440 : 1600;
-  const maxDim = Math.min(targetCap, maxTexDim || targetCap);
-  const scale = Math.min(1, maxDim / Math.max(naturalW, naturalH));
-  const w = Math.max(2, Math.round(naturalW * scale));
-  const h = Math.max(2, Math.round(naturalH * scale));
+  const hardMax = Math.min(2048, maxTexDim || 2048);
 
-  // Fast-path for full-bleed solid backdrops without pixel cutout/portal processing
-  if (!removeWhiteBg && !centerWindow) {
+  // Fast 128px probe (<0.2ms) to detect native alpha transparency and excess empty margins
+  let canReadPixels = true;
+  let transparentCornerCount = 0;
+  let needsMarginCrop = false;
+  let probeCrop = { nx: 0, ny: 0, nw: 1, nh: 1 };
+
+  if (removeWhiteBg || !centerWindow) {
+    try {
+      const pw = Math.min(128, naturalW);
+      const ph = Math.max(2, Math.round((pw * naturalH) / Math.max(1, naturalW)));
+      const probe = document.createElement('canvas');
+      probe.width = pw;
+      probe.height = ph;
+      const pctx = probe.getContext('2d', { willReadFrequently: true });
+      if (pctx) {
+        pctx.drawImage(img, 0, 0, pw, ph);
+        const pdata = pctx.getImageData(0, 0, pw, ph).data;
+        const alphaAt = (x: number, y: number) => pdata[(y * pw + x) * 4 + 3];
+        if (alphaAt(0, 0) < 24) transparentCornerCount++;
+        if (alphaAt(pw - 1, 0) < 24) transparentCornerCount++;
+        if (alphaAt(0, ph - 1) < 24) transparentCornerCount++;
+        if (alphaAt(pw - 1, ph - 1) < 24) transparentCornerCount++;
+
+        if (transparentCornerCount >= 3 && !centerWindow) {
+          let minX = pw;
+          let minY = ph;
+          let maxX = -1;
+          let maxY = -1;
+          for (let py = 0; py < ph; py++) {
+            for (let px = 0; px < pw; px++) {
+              if (pdata[(py * pw + px) * 4 + 3] > 14) {
+                if (px < minX) minX = px;
+                if (px > maxX) maxX = px;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+              }
+            }
+          }
+          if (maxX > minX + 4 && maxY > minY + 4) {
+            const padX = 2 / pw;
+            const padY = 2 / ph;
+            const nx = Math.max(0, minX / pw - padX);
+            const ny = Math.max(0, minY / ph - padY);
+            const nw = Math.min(1 - nx, (maxX - minX + 1) / pw + padX * 2);
+            const nh = Math.min(1 - ny, (maxY - minY + 1) / ph + padY * 2);
+            if (nw < 0.88 || nh < 0.88) {
+              needsMarginCrop = true;
+              probeCrop = { nx, ny, nw, nh };
+            }
+          }
+        }
+      }
+    } catch {
+      canReadPixels = false;
+    }
+  }
+
+  const hasNativeAlphaBg = transparentCornerCount >= 3;
+  const needsWhiteBgRemoval = removeWhiteBg && !hasNativeAlphaBg;
+
+  // Direct zero-resampling GPU texture upload when no pixel flood-fill, portal fade, or margin crop is needed
+  if (!needsWhiteBgRemoval && !centerWindow && !needsMarginCrop) {
+    if (Math.max(naturalW, naturalH) <= hardMax) {
+      const directTex = new THREE.Texture(img);
+      directTex.colorSpace = THREE.SRGBColorSpace;
+      directTex.anisotropy = Math.min(16, maxAnisotropy);
+      directTex.minFilter = THREE.LinearMipmapLinearFilter;
+      directTex.magFilter = THREE.LinearFilter;
+      directTex.generateMipmaps = true;
+      directTex.needsUpdate = true;
+      return { texture: directTex, aspect };
+    }
+    const scale = Math.min(1, hardMax / Math.max(naturalW, naturalH));
+    const w = Math.max(2, Math.round(naturalW * scale));
+    const h = Math.max(2, Math.round(naturalH * scale));
     const offscreen = document.createElement('canvas');
     offscreen.width = w;
     offscreen.height = h;
@@ -206,18 +274,47 @@ function buildProcessedTexture(
       ctx.drawImage(img, 0, 0, w, h);
       const texture = new THREE.CanvasTexture(offscreen);
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = Math.min(8, maxAnisotropy);
+      texture.anisotropy = Math.min(16, maxAnisotropy);
       texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
       texture.generateMipmaps = true;
       texture.needsUpdate = true;
       return { texture, aspect };
     }
-    const rawTex = new THREE.Texture(img);
-    rawTex.colorSpace = THREE.SRGBColorSpace;
-    rawTex.needsUpdate = true;
-    return { texture: rawTex, aspect };
   }
+
+  // Fast crisp crop for native transparent PNG/WebP with excess empty borders
+  if (!needsWhiteBgRemoval && !centerWindow && needsMarginCrop) {
+    const sx = Math.round(probeCrop.nx * naturalW);
+    const sy = Math.round(probeCrop.ny * naturalH);
+    const sw = Math.max(2, Math.round(probeCrop.nw * naturalW));
+    const sh = Math.max(2, Math.round(probeCrop.nh * naturalH));
+    const cropScale = Math.min(1, hardMax / Math.max(sw, sh));
+    const dw = Math.max(2, Math.round(sw * cropScale));
+    const dh = Math.max(2, Math.round(sh * cropScale));
+    const cropped = document.createElement('canvas');
+    cropped.width = dw;
+    cropped.height = dh;
+    const cctx = cropped.getContext('2d');
+    if (cctx) {
+      cctx.imageSmoothingEnabled = true;
+      cctx.imageSmoothingQuality = 'high';
+      cctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+      const texture = new THREE.CanvasTexture(cropped);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = Math.min(16, maxAnisotropy);
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = true;
+      texture.needsUpdate = true;
+      return { texture, aspect: dw / Math.max(1, dh) };
+    }
+  }
+
+  const maxDim = Math.min(1600, hardMax);
+  const scale = Math.min(1, maxDim / Math.max(naturalW, naturalH));
+  const w = Math.max(2, Math.round(naturalW * scale));
+  const h = Math.max(2, Math.round(naturalH * scale));
 
   const offscreen = document.createElement('canvas');
   offscreen.width = w;
@@ -230,22 +327,6 @@ function buildProcessedTexture(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, w, h);
-
-    let canReadPixels = true;
-    let transparentCornerCount = 0;
-    try {
-      const isTransparentAt = (cx: number, cy: number) =>
-        ctx.getImageData(cx, cy, 1, 1).data[3] < 24;
-      if (isTransparentAt(0, 0)) transparentCornerCount++;
-      if (isTransparentAt(w - 1, 0)) transparentCornerCount++;
-      if (isTransparentAt(0, h - 1)) transparentCornerCount++;
-      if (isTransparentAt(w - 1, h - 1)) transparentCornerCount++;
-    } catch {
-      canReadPixels = false;
-    }
-
-    const hasNativeAlphaBg = transparentCornerCount >= 3;
-    const needsWhiteBgRemoval = removeWhiteBg && !hasNativeAlphaBg;
 
     if (canReadPixels && (needsWhiteBgRemoval || centerWindow || transparentCornerCount > 0)) {
       const imageData = ctx.getImageData(0, 0, w, h);
@@ -390,7 +471,7 @@ function buildProcessedTexture(
 
   const texture = new THREE.CanvasTexture(finalCanvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(8, maxAnisotropy);
+  texture.anisotropy = Math.min(16, maxAnisotropy);
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = true;
@@ -575,7 +656,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.NoToneMapping;
       renderer.setPixelRatio(
-        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
+        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 3),
       );
       renderer.setSize(width, height);
       renderer.domElement.style.display = 'block';
