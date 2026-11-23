@@ -41,6 +41,34 @@ interface CachedTextureEntry {
   aspect: number;
 }
 
+const BACKDROP_ELEMENT_IDS = new Set([
+  'el-s1-meadow',
+  'el-s2-pathway',
+  'el-s3-meadow-bg',
+  'el-s4-pavilion',
+  'el-s5-garden-bg',
+  'el-s6-sky',
+]);
+
+export function isBackdropElement(el: CanvasElement): boolean {
+  if (BACKDROP_ELEMENT_IDS.has(el.id)) return true;
+  if (/\bpenuh\b/i.test(el.label) && !el.removeWhiteBg && !el.centerWindow) {
+    return true;
+  }
+  return false;
+}
+
+function getAspectScaleFactor(aspect: number): number {
+  const safeAspect = Math.max(0.2, Math.min(5, aspect || 1));
+  return safeAspect > 1.35 ? 1.35 / safeAspect : 1;
+}
+
+function getResponsiveFov(aspect: number): number {
+  if (aspect >= 0.85) return 46;
+  const t = THREE.MathUtils.clamp((aspect - 0.35) / 0.5, 0, 1);
+  return THREE.MathUtils.lerp(58, 46, t);
+}
+
 // Pre-allocated math helpers (zero GC inside animation loop)
 const _targetCamPos = new THREE.Vector3();
 const _targetLookAt = new THREE.Vector3();
@@ -234,7 +262,7 @@ function buildProcessedTexture(
             const ny = Math.max(0, minY / ph - padY);
             const nw = Math.min(1 - nx, (maxX - minX + 1) / pw + padX * 2);
             const nh = Math.min(1 - ny, (maxY - minY + 1) / ph + padY * 2);
-            if (nw < 0.88 || nh < 0.88) {
+            if (nw < 0.94 || nh < 0.94) {
               needsMarginCrop = true;
               probeCrop = { nx, ny, nw, nh };
             }
@@ -638,7 +666,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       scene.fog = new THREE.FogExp2(bgColor.getHex(), 0.0038);
 
       const aspect = width / Math.max(1, height);
-      const responsiveFov = aspect < 0.85 ? THREE.MathUtils.lerp(56, 46, Math.max(0, aspect - 0.35) / 0.5) : 46;
+      const responsiveFov = getResponsiveFov(aspect);
       const camera = new THREE.PerspectiveCamera(responsiveFov, aspect, 0.1, 200);
       camera.position.set(0, 0.1, 6.5);
 
@@ -876,8 +904,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
           const id = obj.userData.elementId as string | undefined;
           if (id) {
             const asp = (obj.userData.aspect as number) || 1;
-            const normScale =
-              asp > 1.25 ? obj.scale.y * Math.pow(asp, 0.35) : obj.scale.y;
+            const normScale = obj.scale.y / getAspectScaleFactor(asp);
             onTransformRef.current(id, {
               x: Number(obj.position.x.toFixed(2)),
               y: Number(obj.position.y.toFixed(2)),
@@ -956,11 +983,16 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         const h = container.clientHeight || window.innerHeight;
         const asp = w / Math.max(1, h);
         camera.aspect = asp;
-        camera.fov = asp < 0.85 ? THREE.MathUtils.lerp(62, 46, Math.max(0, asp - 0.35) / 0.5) : 46;
+        camera.fov = getResponsiveFov(asp);
         camera.updateProjectionMatrix();
         renderer.setSize(w, h);
       };
       window.addEventListener('resize', handleResize);
+      const resizeObserver =
+        typeof ResizeObserver !== 'undefined'
+          ? new ResizeObserver(() => handleResize())
+          : null;
+      resizeObserver?.observe(container);
 
       // WebGL context safety
       const handleContextLost = (ev: Event) => {
@@ -1133,11 +1165,11 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
           mesh.rotation.set(el.rotX, el.rotY + sway * 0.45, el.rotZ + sway);
 
           const aspect = (mesh.userData.aspect as number) || 1;
-          let fitH = aspect > 1.25 ? el.scale / Math.pow(aspect, 0.35) : el.scale;
+          let fitH = el.scale * getAspectScaleFactor(aspect);
           let fitW = fitH * aspect;
 
-          if (!el.removeWhiteBg && !useOrbit) {
-            // Ensure full-bleed background illustrations cover 100% of viewport even during oblique left-right sweeps
+          if (isBackdropElement(el) && !useOrbit) {
+            // Ensure full-bleed scene backdrops cover 100% of viewport even during oblique left-right sweeps
             const effDist = Math.max(4.5, Math.abs(distFromCam));
             const visH = 2 * effDist * tanHalfFov;
             const visW = visH * camera.aspect;
@@ -1146,17 +1178,6 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
             const coverH = Math.max(visH * 1.32, coverW / Math.max(0.25, aspect));
             fitH = Math.max(fitH, coverH);
             fitW = fitH * aspect;
-          } else {
-            // Keep foreground PNG replacements neatly bounded inside the factory proportion envelope
-            const maxW = el.scale * 1.65;
-            const minW = el.scale * 0.45;
-            if (fitW > maxW) {
-              fitW = maxW;
-              fitH = fitW / Math.max(0.25, aspect);
-            } else if (fitW < minW) {
-              fitW = minW;
-              fitH = fitW / Math.max(0.25, aspect);
-            }
           }
 
           mesh.scale.set(fitW, fitH, 1);
@@ -1299,6 +1320,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         clearTimeout(frameId);
         window.removeEventListener('pointermove', handlePointerMove);
         window.removeEventListener('resize', handleResize);
+        resizeObserver?.disconnect();
         renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
         renderer.domElement.removeEventListener('pointerup', handlePointerUp);
         renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);

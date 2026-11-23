@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   Maximize2,
+  Monitor,
   Move,
   Orbit,
   Play,
@@ -15,10 +16,12 @@ import {
   RotateCcw,
   RotateCw,
   Save,
+  Smartphone,
   Trash2,
 } from 'lucide-react';
 import { dataService } from '../services/dataService.ts';
 import {
+  isBackdropElement,
   MentalCanvas3D,
   type GizmoMode,
   type MentalCanvas3DHandle,
@@ -61,6 +64,7 @@ export function AdminCanvasStudio({
   saving,
 }: AdminCanvasStudioProps) {
   const [isOrbitMode, setIsOrbitMode] = useState(false);
+  const [previewFrame, setPreviewFrame] = useState<'wide' | 'phone'>('wide');
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   const [scrubProgress, setScrubProgress] = useState(0);
   const [inspectorTab, setInspectorTab] = useState<'layers' | 'camera'>('layers');
@@ -222,6 +226,35 @@ export function AdminCanvasStudio({
             </button>
           </div>
 
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-[#F4EEEC]">
+            <button
+              type="button"
+              onClick={() => setPreviewFrame('wide')}
+              title="Tampilan kanvas lebar"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                previewFrame === 'wide'
+                  ? 'bg-white text-[#3A2D32] shadow-xs'
+                  : 'text-[#6E5D63] hover:text-[#3A2D32]'
+              }`}
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              <span>Layar Penuh</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPreviewFrame('phone')}
+              title="Simulasikan bingkai layar HP (9:16)"
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer whitespace-nowrap ${
+                previewFrame === 'phone'
+                  ? 'bg-white text-[#3A2D32] shadow-xs'
+                  : 'text-[#6E5D63] hover:text-[#3A2D32]'
+              }`}
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>HP (9:16)</span>
+            </button>
+          </div>
+
           {isOrbitMode ? (
             <div className="flex items-center gap-1.5">
               {(
@@ -317,40 +350,54 @@ export function AdminCanvasStudio({
         </div>
 
         {/* 3D Mental Canvas Stage */}
-        <div className="relative h-[480px] lg:h-[540px] rounded-2xl border border-[#E6DFDB] overflow-hidden bg-[#FBF8F6]">
-          <MentalCanvas3D
-            ref={canvasRef}
-            elements={elements}
-            cameraStops={cameraStops}
-            scrollProgress={scrubProgress}
-            skyColorHex={skyColorHex}
-            mode="editor"
-            isOrbitMode={isOrbitMode}
-            gizmoMode={gizmoMode}
-            selectedElementId={selectedElementId}
-            onSelectElement={onSelectElement}
-            onTransformElement={updateElement}
-          />
+        <div
+          className={
+            previewFrame === 'phone'
+              ? 'rounded-2xl border border-[#E6DFDB] bg-[#EFE9E6]/65 p-3 sm:p-4 flex justify-center'
+              : ''
+          }
+        >
+          <div
+            className={`relative rounded-2xl border border-[#E6DFDB] overflow-hidden bg-[#FBF8F6] transition-all duration-200 ${
+              previewFrame === 'phone'
+                ? 'w-full max-w-[340px] h-[600px] shadow-md'
+                : 'w-full h-[480px] lg:h-[540px]'
+            }`}
+          >
+            <MentalCanvas3D
+              ref={canvasRef}
+              elements={elements}
+              cameraStops={cameraStops}
+              scrollProgress={scrubProgress}
+              skyColorHex={skyColorHex}
+              mode="editor"
+              isOrbitMode={isOrbitMode}
+              gizmoMode={gizmoMode}
+              selectedElementId={selectedElementId}
+              onSelectElement={onSelectElement}
+              onTransformElement={updateElement}
+            />
 
-          {/* Quick chapter jump chips inside bottom bar of viewport when in scrub mode */}
-          {!isOrbitMode && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded-xl border border-[#E6DFDB] bg-white/94 px-2.5 py-1.5 shadow-sm">
-              {cameraStops.map((stop) => (
-                <button
-                  key={stop.id}
-                  type="button"
-                  onClick={() => setScrubProgress(stop.scrollAt)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                    Math.abs(scrubProgress - stop.scrollAt) < 0.09
-                      ? 'bg-[#C47D8E] text-white'
-                      : 'text-[#6E5D63] hover:text-[#3A2D32] hover:bg-[#FBF8F6]'
-                  }`}
-                >
-                  {stop.title}
-                </button>
-              ))}
-            </div>
-          )}
+            {/* Quick chapter jump chips inside bottom bar of viewport when in scrub mode */}
+            {!isOrbitMode && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 max-w-[calc(100%-1.5rem)] overflow-x-auto flex items-center gap-1.5 rounded-xl border border-[#E6DFDB] bg-white/94 px-2.5 py-1.5 shadow-sm">
+                {cameraStops.map((stop) => (
+                  <button
+                    key={stop.id}
+                    type="button"
+                    onClick={() => setScrubProgress(stop.scrollAt)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                      Math.abs(scrubProgress - stop.scrollAt) < 0.09
+                        ? 'bg-[#C47D8E] text-white'
+                        : 'text-[#6E5D63] hover:text-[#3A2D32] hover:bg-[#FBF8F6]'
+                    }`}
+                  >
+                    {stop.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Quick Asset Strip */}
@@ -550,13 +597,16 @@ export function AdminCanvasStudio({
                           setUploadingReplace(true);
                           setReplaceError(null);
                           try {
-                            const cat = selectedElement.label
-                              .toLowerCase()
-                              .includes('pengantin')
-                              ? 'couple'
-                              : selectedElement.removeWhiteBg
-                                ? 'floral'
-                                : 'backdrop';
+                            const lowerLabel = selectedElement.label.toLowerCase();
+                            const cat = isBackdropElement(selectedElement)
+                              ? 'backdrop'
+                              : lowerLabel.includes('pengantin')
+                                ? 'couple'
+                                : lowerLabel.includes('gazebo') ||
+                                    lowerLabel.includes('gerbang') ||
+                                    lowerLabel.includes('pavilion')
+                                  ? 'venue'
+                                  : 'floral';
                             const uploaded = await dataService.uploadAsset(
                               file,
                               `${selectedElement.label} (${file.name.replace(/\.[^.]+$/, '')})`,
@@ -717,14 +767,14 @@ export function AdminCanvasStudio({
                     <div className="flex justify-between text-[11px] text-[#6E5D63] mb-1">
                       <span>Skala</span>
                       <span className="font-mono tabular-nums">
-                        {selectedElement.scale.toFixed(1)}x
+                        {selectedElement.scale.toFixed(2)}x
                       </span>
                     </div>
                     <input
                       type="range"
-                      min={0.5}
-                      max={14}
-                      step={0.1}
+                      min={0.2}
+                      max={16}
+                      step={0.05}
                       value={selectedElement.scale}
                       onChange={(e) =>
                         updateElement(selectedElement.id, {
@@ -756,6 +806,16 @@ export function AdminCanvasStudio({
                     />
                   </div>
                 </div>
+
+                {isBackdropElement(selectedElement) ? (
+                  <p className="rounded-lg border border-[#E7C6CE] bg-[#FBF1F3] px-2.5 py-1.5 text-[11px] text-[#8F3A4E] leading-relaxed">
+                    Lapisan latar penuh otomatis menyesuaikan lebar & tinggi layar saat tamu menggulir agar tepi kanvas tidak terpotong.
+                  </p>
+                ) : (
+                  <p className="rounded-lg border border-[#E6DFDB] bg-[#FBF8F6] px-2.5 py-1.5 text-[11px] text-[#6E5D63] leading-relaxed">
+                    Skala & posisi tetap identik antara Orbit 3D, Pratinjau Scroll, dan layar tamu berapa pun resolusi/ukuran file gambar yang diunggah. Gunakan tombol <strong className="text-[#3A2D32]">HP (9:16)</strong> di atas untuk mengecek proporsi ponsel.
+                  </p>
+                )}
 
                 {/* 3D Rotation */}
                 <div className="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-[#F2ECE9]">
