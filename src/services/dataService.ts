@@ -81,6 +81,67 @@ function isMissingTableOrBucketError(err: unknown): boolean {
   );
 }
 
+/**
+ * Downscales huge uploaded raster images (>1600px or >600KB) cleanly before storage upload,
+ * preserving full alpha transparency via WebP so mobile guests load crisp images fast.
+ */
+async function optimizeImageForUpload(file: File): Promise<File> {
+  if (typeof window === 'undefined') return file;
+  const type = (file.type || '').toLowerCase();
+  if (type === 'image/svg+xml' || type === 'image/gif' || !type.startsWith('image/')) {
+    return file;
+  }
+  const maxBytesBeforeCompress = 550 * 1024;
+  const maxDim = 1600;
+
+  try {
+    const objectUrl = URL.createObjectURL(file);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('load failed'));
+      el.src = objectUrl;
+    });
+    URL.revokeObjectURL(objectUrl);
+
+    const w = img.naturalWidth || 0;
+    const h = img.naturalHeight || 0;
+    if (!w || !h) return file;
+
+    const needsResize = Math.max(w, h) > maxDim;
+    const needsCompress = file.size > maxBytesBeforeCompress;
+    if (!needsResize && !needsCompress) return file;
+
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    const targetW = Math.max(2, Math.round(w * scale));
+    const targetH = Math.max(2, Math.round(h * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+
+    const isAlphaCandidate = type === 'image/png' || type === 'image/webp';
+    const targetMime = isAlphaCandidate ? 'image/webp' : 'image/jpeg';
+    const quality = isAlphaCandidate ? 0.9 : 0.88;
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, targetMime, quality),
+    );
+    if (!blob || blob.size >= file.size) return file;
+
+    const ext = targetMime === 'image/webp' ? 'webp' : 'jpg';
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'asset';
+    return new File([blob], `${baseName}.${ext}`, { type: targetMime });
+  } catch {
+    return file;
+  }
+}
+
 // Map DB snake_case <-> TypeScript camelCase for Supabase
 function mapSettingsFromDb(row: Record<string, unknown>): WeddingSettings {
   const extra = (row.scene_config as Record<string, unknown> | null) || {};
@@ -643,18 +704,23 @@ export const dataService = {
     name: string,
     category: AssetCategory,
   ): Promise<MediaAsset> {
+    const preparedFile = await optimizeImageForUpload(file);
     if (supabase) {
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const ext = preparedFile.name.split('.').pop()?.toLowerCase() || 'png';
       const safeName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const storagePath = `elements/${safeName}`;
 
       const { error: uploadErr } = await supabase.storage
         .from('wedding-assets')
-        .upload(storagePath, file, { upsert: false });
+        .upload(storagePath, preparedFile, {
+          upsert: false,
+          cacheControl: '31536000',
+          contentType: preparedFile.type || undefined,
+        });
 
       if (uploadErr && isMissingTableOrBucketError(uploadErr)) {
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', preparedFile);
         formData.append('name', name);
         formData.append('category', category);
         const res = await adminApiJson<{ asset: MediaAsset }>('/api/admin/assets/upload', {
@@ -690,7 +756,7 @@ export const dataService = {
       if (dbErr && isMissingTableOrBucketError(dbErr)) {
         await supabase.storage.from('wedding-assets').remove([storagePath]).catch(() => {});
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', preparedFile);
         formData.append('name', name);
         formData.append('category', category);
         const res = await adminApiJson<{ asset: MediaAsset }>('/api/admin/assets/upload', {
@@ -717,7 +783,7 @@ export const dataService = {
     }
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', preparedFile);
     formData.append('name', name);
     formData.append('category', category);
     const res = await adminApiJson<{ asset: MediaAsset }>('/api/admin/assets/upload', {

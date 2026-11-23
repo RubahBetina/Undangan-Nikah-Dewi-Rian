@@ -29,6 +29,7 @@ import { downloadWeddingIcs } from '../utils/calendar.ts';
 
 interface GuestInvitationProps {
   bundle: InvitationBundle;
+  bundleReady?: boolean;
   onWishAdded: (wish: WishEntry) => void;
   onSecretAdminTrigger?: () => void;
 }
@@ -62,6 +63,7 @@ function stageOpacity(
 
 export function GuestInvitation({
   bundle,
+  bundleReady = true,
   onWishAdded,
   onSecretAdminTrigger,
 }: GuestInvitationProps) {
@@ -276,7 +278,7 @@ export function GuestInvitation({
       {/* Full-Viewport 3D Mental Canvas Stage */}
       <div className="fixed inset-0 z-0 pointer-events-none">
         <MentalCanvas3D
-          elements={elements}
+          elements={bundleReady ? elements : []}
           cameraStops={cameraStops}
           scrollProgress={scrollProgress}
           skyColorHex={settings.skyColorHex}

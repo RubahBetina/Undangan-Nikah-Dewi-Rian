@@ -188,13 +188,7 @@ function buildProcessedTexture(
   const aspect = naturalW / Math.max(1, naturalH);
 
   const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
-  const targetCap = isMobileViewport
-    ? removeWhiteBg
-      ? 768
-      : 960
-    : removeWhiteBg
-      ? 1024
-      : 1280;
+  const targetCap = isMobileViewport ? 1440 : 1600;
   const maxDim = Math.min(targetCap, maxTexDim || targetCap);
   const scale = Math.min(1, maxDim / Math.max(naturalW, naturalH));
   const w = Math.max(2, Math.round(naturalW * scale));
@@ -212,7 +206,7 @@ function buildProcessedTexture(
       ctx.drawImage(img, 0, 0, w, h);
       const texture = new THREE.CanvasTexture(offscreen);
       texture.colorSpace = THREE.SRGBColorSpace;
-      texture.anisotropy = Math.min(4, maxAnisotropy);
+      texture.anisotropy = Math.min(8, maxAnisotropy);
       texture.minFilter = THREE.LinearMipmapLinearFilter;
       texture.magFilter = THREE.LinearFilter;
       texture.generateMipmaps = true;
@@ -238,24 +232,26 @@ function buildProcessedTexture(
     ctx.drawImage(img, 0, 0, w, h);
 
     let canReadPixels = true;
-    let hasNativeAlphaEdges = false;
+    let transparentCornerCount = 0;
     try {
-      const checkCorner = (cx: number, cy: number) =>
+      const isTransparentAt = (cx: number, cy: number) =>
         ctx.getImageData(cx, cy, 1, 1).data[3] < 24;
-      hasNativeAlphaEdges =
-        checkCorner(0, 0) ||
-        checkCorner(w - 1, 0) ||
-        checkCorner(0, h - 1) ||
-        checkCorner(w - 1, h - 1);
+      if (isTransparentAt(0, 0)) transparentCornerCount++;
+      if (isTransparentAt(w - 1, 0)) transparentCornerCount++;
+      if (isTransparentAt(0, h - 1)) transparentCornerCount++;
+      if (isTransparentAt(w - 1, h - 1)) transparentCornerCount++;
     } catch {
       canReadPixels = false;
     }
 
-    if (canReadPixels && (removeWhiteBg || centerWindow || hasNativeAlphaEdges)) {
+    const hasNativeAlphaBg = transparentCornerCount >= 3;
+    const needsWhiteBgRemoval = removeWhiteBg && !hasNativeAlphaBg;
+
+    if (canReadPixels && (needsWhiteBgRemoval || centerWindow || transparentCornerCount > 0)) {
       const imageData = ctx.getImageData(0, 0, w, h);
       const data = imageData.data;
 
-      if (removeWhiteBg) {
+      if (needsWhiteBgRemoval) {
         // Exterior 4-edge BFS flood fill so white paper is removed WITHOUT eating white dresses/roses inside subjects
         const total = w * h;
         const visited = new Uint8Array(total);
@@ -347,16 +343,19 @@ function buildProcessedTexture(
         }
       }
 
-      ctx.putImageData(imageData, 0, 0);
+      if (needsWhiteBgRemoval || centerWindow) {
+        ctx.putImageData(imageData, 0, 0);
+      }
 
-      // Auto-trim excessive transparent padding around uploaded PNGs/cutouts so replacement assets keep factory proportions
-      if (!centerWindow && (removeWhiteBg || hasNativeAlphaEdges)) {
+      // Fast sampled auto-trim of excessive transparent padding around PNGs/cutouts
+      if (!centerWindow && (needsWhiteBgRemoval || transparentCornerCount > 0)) {
+        const step = 4;
         let minX = w;
         let minY = h;
         let maxX = -1;
         let maxY = -1;
-        for (let py = 0; py < h; py++) {
-          for (let px = 0; px < w; px++) {
+        for (let py = 0; py < h; py += step) {
+          for (let px = 0; px < w; px += step) {
             if (data[(py * w + px) * 4 + 3] > 14) {
               if (px < minX) minX = px;
               if (px > maxX) maxX = px;
@@ -366,7 +365,7 @@ function buildProcessedTexture(
           }
         }
         if (maxX > minX + 10 && maxY > minY + 10) {
-          const pad = 4;
+          const pad = 8;
           const cx = Math.max(0, minX - pad);
           const cy = Math.max(0, minY - pad);
           const cw = Math.min(w - cx, maxX - minX + 1 + pad * 2);
@@ -576,7 +575,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.NoToneMapping;
       renderer.setPixelRatio(
-        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, isMobileScreen ? 1.75 : 2),
+        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
       );
       renderer.setSize(width, height);
       renderer.domElement.style.display = 'block';
@@ -1412,8 +1411,15 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         }
       });
 
-      // Load Scene 1 (chapterIndex === 0) immediately, then stagger deeper scenes so initial render never stalls
-      pendingLoads.sort((a, b) => a.el.chapterIndex - b.el.chapterIndex);
+      // Load Scene 1 (with couple subject prioritized FIRST) immediately, then stagger deeper scenes
+      pendingLoads.sort((a, b) => {
+        if (a.el.chapterIndex !== b.el.chapterIndex) {
+          return a.el.chapterIndex - b.el.chapterIndex;
+        }
+        const aCouple = a.el.id.includes('couple') || /pengantin/i.test(a.el.label) ? 0 : 1;
+        const bCouple = b.el.id.includes('couple') || /pengantin/i.test(b.el.label) ? 0 : 1;
+        return aCouple - bCouple;
+      });
 
       const attachTexture = (item: { el: CanvasElement; mesh: THREE.Mesh; cacheKey: string }) => {
         loadOrReuseTexture(item.el, item.cacheKey)

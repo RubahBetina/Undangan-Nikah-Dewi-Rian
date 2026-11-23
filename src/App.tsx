@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_WISHES,
 } from './data/defaultSeed.ts';
+import { isSupabaseConfigured } from './lib/supabase.ts';
 import { dataService } from './services/dataService.ts';
 import type { InvitationBundle, WishEntry } from './types/wedding.ts';
 
@@ -132,6 +133,7 @@ export default function App() {
       {quotaBanner}
       <GuestInvitation
         bundle={bundle}
+        bundleReady={loaded || !isSupabaseConfigured}
         onWishAdded={handleWishAdded}
         onSecretAdminTrigger={navigateToAdmin}
       />
