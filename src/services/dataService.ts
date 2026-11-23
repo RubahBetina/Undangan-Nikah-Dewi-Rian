@@ -32,6 +32,11 @@ async function apiJson<T>(url: string, options?: RequestInit): Promise<T> {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if ((res.status === 404 || res.status === 405) && !isSupabaseConfigured) {
+      throw new Error(
+        'Backend API tidak tersedia di hosting statis. Pastikan VITE_SUPABASE_URL dan VITE_SUPABASE_ANON_KEY sudah diisi di Environment Variables Vercel.',
+      );
+    }
     throw new Error((data as { error?: string }).error || 'Permintaan gagal diproses.');
   }
   return data as T;
