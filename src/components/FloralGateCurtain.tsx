@@ -1,3 +1,6 @@
+import { DEFAULT_TYPOGRAPHY, getSlotTextStyle } from '../lib/typography.ts';
+import type { TypographySettings } from '../types/wedding.ts';
+
 interface FloralGateCurtainProps {
   gateImageUrl: string;
   isOpen: boolean;
@@ -5,6 +8,7 @@ interface FloralGateCurtainProps {
   guestName?: string;
   brideFullName: string;
   groomFullName: string;
+  typography?: TypographySettings;
   onAction: () => void;
 }
 
@@ -15,9 +19,11 @@ export function FloralGateCurtain({
   guestName,
   brideFullName,
   groomFullName,
+  typography,
   onAction,
 }: FloralGateCurtainProps) {
   const interactive = !isOpen;
+  const typo = typography || DEFAULT_TYPOGRAPHY;
 
   return (
     <div
@@ -59,33 +65,46 @@ export function FloralGateCurtain({
 
       {/* Minimal Center Tap Prompt on Closed Gate */}
       <div
-        className={`relative z-10 h-full flex flex-col items-center justify-end pb-14 px-6 transition-opacity duration-500 ${
+        className={`relative z-10 h-full flex flex-col items-center justify-end pb-12 sm:pb-14 px-5 transition-opacity duration-500 ${
           isOpen ? 'opacity-0' : 'opacity-100'
         }`}
       >
-        {guestName && mode === 'opening' && (
-          <p className="mb-3 rounded-full bg-[#FBF8F6]/90 px-4 py-1 text-xs font-medium text-[#3A2D32]">
-            Kepada Yth. {guestName}
-          </p>
-        )}
-
         <button
           type="button"
           onClick={onAction}
-          className="rounded-full bg-[#FBF8F6]/94 border border-[#DFD6D1] px-7 py-3 text-xs sm:text-sm font-semibold text-[#3A2D32] shadow-[0_12px_30px_-10px_rgba(58,45,50,0.28)] hover:bg-white transition-transform active:scale-[0.98] cursor-pointer text-center"
+          className="w-auto max-w-[92vw] sm:max-w-md rounded-3xl bg-[#FBF8F6]/94 border border-[#DFD6D1] px-7 py-4 text-[#3A2D32] shadow-[0_12px_30px_-10px_rgba(58,45,50,0.28)] hover:bg-white transition-transform active:scale-[0.98] cursor-pointer text-center"
         >
           {mode === 'opening' ? (
-            <span>
-              Ketuk untuk Membuka Undangan
-              <span className="mx-1.5 text-[#C47D8E]" aria-hidden="true">
-                ·
+            <div className="flex flex-col items-center gap-1.5">
+              {guestName && (
+                <span
+                  style={getSlotTextStyle(typo.gateSubtitle, DEFAULT_TYPOGRAPHY.gateSubtitle, 1.08)}
+                  className="italic font-medium text-[#6E5D63]"
+                >
+                  Kepada Yth. {guestName}
+                </span>
+              )}
+              <span
+                style={getSlotTextStyle(typo.gateCouple, DEFAULT_TYPOGRAPHY.gateCouple)}
+                className="font-bold tracking-tight text-[#3A2D32] leading-snug text-balance"
+              >
+                {groomFullName} &amp; {brideFullName}
               </span>
-              <span className="font-script font-bold text-lg sm:text-xl text-[#3A2D32] align-middle">
-                {brideFullName} &amp; {groomFullName}
+              <span className="w-12 h-px bg-[#DFD6D1] my-0.5" aria-hidden="true" />
+              <span
+                style={getSlotTextStyle(typo.gateSubtitle, DEFAULT_TYPOGRAPHY.gateSubtitle, 0.9)}
+                className="font-semibold uppercase tracking-[0.18em] text-[#8F4A5B]"
+              >
+                Ketuk untuk Membuka Undangan
               </span>
-            </span>
+            </div>
           ) : (
-            'Kembali ke Atas'
+            <span
+              style={getSlotTextStyle(typo.gateSubtitle, DEFAULT_TYPOGRAPHY.gateSubtitle, 0.95)}
+              className="font-semibold uppercase tracking-[0.18em] text-[#8F4A5B]"
+            >
+              Kembali ke Atas
+            </span>
           )}
         </button>
       </div>

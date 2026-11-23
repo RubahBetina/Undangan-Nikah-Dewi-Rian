@@ -60,6 +60,40 @@ export interface StoryMilestone {
   description: string;
 }
 
+export interface GiftAccount {
+  id: string;
+  label?: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolder: string;
+}
+
+export type InvitationFontId =
+  | 'dancing-script'
+  | 'great-vibes'
+  | 'alex-brush'
+  | 'cormorant-garamond'
+  | 'playfair-display'
+  | 'lora'
+  | 'plus-jakarta-sans';
+
+export interface TypographySlotConfig {
+  font: InvitationFontId;
+  size: number;
+}
+
+export interface TypographySettings {
+  gateCouple: TypographySlotConfig;
+  gateSubtitle: TypographySlotConfig;
+  weddingOf: TypographySlotConfig;
+  coupleNames: TypographySlotConfig;
+  coupleParents: TypographySlotConfig;
+  sectionTitles: TypographySlotConfig;
+  verseQuote: TypographySlotConfig;
+  bodyText: TypographySlotConfig;
+  closingTitle: TypographySlotConfig;
+}
+
 export interface WeddingSettings {
   coupleHeadline: string;
   brideFullName: string;
@@ -86,6 +120,9 @@ export interface WeddingSettings {
   resepsiVenue: string;
   resepsiAddress: string;
   mapsUrl: string;
+  venueLat?: number;
+  venueLng?: number;
+  venuePlaceId?: string;
   dressCode: string;
   // Scene 5: Taman Kado (Wedding Gift)
   giftTitle: string;
@@ -93,6 +130,7 @@ export interface WeddingSettings {
   giftBankName: string;
   giftAccountNumber: string;
   giftAccountHolder: string;
+  giftAccounts: GiftAccount[];
   // Scene 6: Langit Penutup (Ucapan Terima Kasih)
   closingThanksTitle: string;
   closingThanksMessage: string;
@@ -105,6 +143,7 @@ export interface WeddingSettings {
   musicEnabled: boolean;
   musicUrl: string;
   musicTitle: string;
+  typography: TypographySettings;
   storyMilestones: StoryMilestone[];
 }
 

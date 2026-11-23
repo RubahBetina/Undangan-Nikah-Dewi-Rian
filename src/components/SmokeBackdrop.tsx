@@ -121,7 +121,7 @@ export function SmokeBackdrop({
       )}
       <div
         className={`relative z-10 w-full text-center ${
-          compact ? 'px-4 py-3 sm:px-7 sm:py-4' : 'px-6 py-5 sm:px-10 sm:py-7'
+          compact ? 'px-1.5 py-2.5 sm:px-7 sm:py-4' : 'px-6 py-5 sm:px-10 sm:py-7'
         }`}
       >
         {children}

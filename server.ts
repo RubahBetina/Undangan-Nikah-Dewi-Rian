@@ -13,6 +13,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_WISHES,
 } from './src/data/defaultSeed.ts';
+import { mergeTypography } from './src/lib/typography.ts';
 import type {
   AdminUser,
   AssetCategory,
@@ -154,6 +155,25 @@ function loadDb(): DatabaseSchema {
       dirty = true;
     }
     parsed.settings = { ...DEFAULT_SETTINGS, ...(parsed.settings || {}) };
+    const mergedTypography = mergeTypography(parsed.settings.typography);
+    if (JSON.stringify(parsed.settings.typography) !== JSON.stringify(mergedTypography)) {
+      parsed.settings.typography = mergedTypography;
+      dirty = true;
+    }
+    if (!Array.isArray(parsed.settings.giftAccounts) || parsed.settings.giftAccounts.length === 0) {
+      parsed.settings.giftAccounts = parsed.settings.giftBankName
+        ? [
+            {
+              id: 'gift-primary',
+              label: 'Rekening Tanda Kasih',
+              bankName: parsed.settings.giftBankName,
+              accountNumber: parsed.settings.giftAccountNumber,
+              accountHolder: parsed.settings.giftAccountHolder,
+            },
+          ]
+        : DEFAULT_SETTINGS.giftAccounts;
+      dirty = true;
+    }
     if (
       !parsed.cameraStops ||
       (parsed.cameraStops.length === 6 &&

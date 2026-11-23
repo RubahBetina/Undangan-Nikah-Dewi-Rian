@@ -7,11 +7,13 @@ import {
   DEFAULT_WISHES,
 } from '../data/defaultSeed.ts';
 import { isSupabaseConfigured, supabase } from '../lib/supabase.ts';
+import { mergeTypography } from '../lib/typography.ts';
 import type {
   AdminUser,
   AssetCategory,
   CameraStop,
   CanvasElement,
+  GiftAccount,
   InvitationBundle,
   MediaAsset,
   RsvpEntry,
@@ -103,6 +105,12 @@ function mapSettingsFromDb(row: Record<string, unknown>): WeddingSettings {
     resepsiVenue: String(row.resepsi_venue ?? DEFAULT_SETTINGS.resepsiVenue),
     resepsiAddress: String(row.resepsi_address ?? DEFAULT_SETTINGS.resepsiAddress),
     mapsUrl: String(row.maps_url ?? DEFAULT_SETTINGS.mapsUrl),
+    venueLat: typeof extra.venueLat === 'number' ? extra.venueLat : undefined,
+    venueLng: typeof extra.venueLng === 'number' ? extra.venueLng : undefined,
+    venuePlaceId:
+      typeof extra.venuePlaceId === 'string' && extra.venuePlaceId.trim()
+        ? extra.venuePlaceId
+        : undefined,
     dressCode: String(row.dress_code ?? DEFAULT_SETTINGS.dressCode),
     giftTitle: String(extra.giftTitle ?? DEFAULT_SETTINGS.giftTitle),
     giftMessage: String(extra.giftMessage ?? DEFAULT_SETTINGS.giftMessage),
@@ -113,6 +121,21 @@ function mapSettingsFromDb(row: Record<string, unknown>): WeddingSettings {
     giftAccountHolder: String(
       extra.giftAccountHolder ?? DEFAULT_SETTINGS.giftAccountHolder,
     ),
+    giftAccounts: Array.isArray(extra.giftAccounts) && extra.giftAccounts.length > 0
+      ? (extra.giftAccounts as GiftAccount[])
+      : [
+          {
+            id: 'gift-primary',
+            label: 'Rekening Tanda Kasih',
+            bankName: String(extra.giftBankName ?? DEFAULT_SETTINGS.giftBankName),
+            accountNumber: String(
+              extra.giftAccountNumber ?? DEFAULT_SETTINGS.giftAccountNumber,
+            ),
+            accountHolder: String(
+              extra.giftAccountHolder ?? DEFAULT_SETTINGS.giftAccountHolder,
+            ),
+          },
+        ],
     closingThanksTitle: String(
       extra.closingThanksTitle ?? DEFAULT_SETTINGS.closingThanksTitle,
     ),
@@ -130,6 +153,7 @@ function mapSettingsFromDb(row: Record<string, unknown>): WeddingSettings {
         : DEFAULT_SETTINGS.musicEnabled,
     musicUrl: String(extra.musicUrl ?? DEFAULT_SETTINGS.musicUrl),
     musicTitle: String(extra.musicTitle ?? DEFAULT_SETTINGS.musicTitle),
+    typography: mergeTypography(extra.typography),
     storyMilestones: Array.isArray(row.story_milestones)
       ? (row.story_milestones as WeddingSettings['storyMilestones'])
       : DEFAULT_SETTINGS.storyMilestones,
@@ -170,9 +194,10 @@ function mapSettingsToDb(s: WeddingSettings): Record<string, unknown> {
       verseQuote: s.verseQuote,
       giftTitle: s.giftTitle,
       giftMessage: s.giftMessage,
-      giftBankName: s.giftBankName,
-      giftAccountNumber: s.giftAccountNumber,
-      giftAccountHolder: s.giftAccountHolder,
+      giftBankName: s.giftAccounts?.[0]?.bankName ?? s.giftBankName,
+      giftAccountNumber: s.giftAccounts?.[0]?.accountNumber ?? s.giftAccountNumber,
+      giftAccountHolder: s.giftAccounts?.[0]?.accountHolder ?? s.giftAccountHolder,
+      giftAccounts: s.giftAccounts || [],
       closingThanksTitle: s.closingThanksTitle,
       closingThanksMessage: s.closingThanksMessage,
       gateImageUrl: s.gateImageUrl,
@@ -180,6 +205,10 @@ function mapSettingsToDb(s: WeddingSettings): Record<string, unknown> {
       musicEnabled: s.musicEnabled,
       musicUrl: s.musicUrl,
       musicTitle: s.musicTitle,
+      typography: s.typography,
+      venueLat: typeof s.venueLat === 'number' ? s.venueLat : null,
+      venueLng: typeof s.venueLng === 'number' ? s.venueLng : null,
+      venuePlaceId: s.venuePlaceId || null,
       wishesSeeded: true,
     },
   };
@@ -457,17 +486,14 @@ export const dataService = {
     message: string;
   }): Promise<{ rsvp: RsvpEntry; wish: WishEntry | null }> {
     if (supabase) {
-      const { data: rsvpData, error: rsvpErr } = await supabase
-        .from('rsvps')
-        .insert({
-          guest_name: payload.guestName,
-          attendance: payload.attendance,
-          guest_count: payload.guestCount,
-          session_choice: payload.sessionChoice,
-          message: payload.message,
-        })
-        .select('*')
-        .single();
+      const createdAt = new Date().toISOString();
+      const { error: rsvpErr } = await supabase.from('rsvps').insert({
+        guest_name: payload.guestName,
+        attendance: payload.attendance,
+        guest_count: payload.guestCount,
+        session_choice: payload.sessionChoice,
+        message: payload.message,
+      });
 
       if (rsvpErr && isMissingTableOrBucketError(rsvpErr)) {
         return apiJson<{ rsvp: RsvpEntry; wish: WishEntry | null }>('/api/rsvp', {
@@ -476,36 +502,35 @@ export const dataService = {
         });
       }
 
-      if (rsvpErr || !rsvpData) {
-        throw new Error(rsvpErr?.message || 'Gagal menyimpan RSVP.');
+      if (rsvpErr) {
+        throw new Error(rsvpErr.message || 'Gagal menyimpan RSVP.');
       }
 
       let wish: WishEntry | null = null;
-      if (payload.message.trim().length > 0) {
-        const { data: wishData } = await supabase
+      const cleanMessage = payload.message.trim();
+      if (cleanMessage.length > 0) {
+        const { error: wishErr } = await supabase
           .from('wishes')
-          .insert({ guest_name: payload.guestName, message: payload.message.trim() })
-          .select('*')
-          .single();
-        if (wishData) {
+          .insert({ guest_name: payload.guestName, message: cleanMessage });
+        if (!wishErr) {
           wish = {
-            id: String(wishData.id),
-            guestName: String(wishData.guest_name),
-            message: String(wishData.message),
-            createdAt: String(wishData.created_at),
+            id: `wish-local-${Date.now()}`,
+            guestName: payload.guestName,
+            message: cleanMessage,
+            createdAt,
           };
         }
       }
 
       return {
         rsvp: {
-          id: String(rsvpData.id),
-          guestName: String(rsvpData.guest_name),
-          attendance: rsvpData.attendance as RsvpEntry['attendance'],
-          guestCount: Number(rsvpData.guest_count),
-          sessionChoice: rsvpData.session_choice as RsvpEntry['sessionChoice'],
-          message: String(rsvpData.message ?? ''),
-          createdAt: String(rsvpData.created_at),
+          id: `rsvp-local-${Date.now()}`,
+          guestName: payload.guestName,
+          attendance: payload.attendance,
+          guestCount: payload.guestCount,
+          sessionChoice: payload.sessionChoice,
+          message: payload.message,
+          createdAt,
         },
         wish,
       };
@@ -519,11 +544,10 @@ export const dataService = {
 
   async submitWish(guestName: string, message: string): Promise<WishEntry> {
     if (supabase) {
-      const { data, error } = await supabase
+      const createdAt = new Date().toISOString();
+      const { error } = await supabase
         .from('wishes')
-        .insert({ guest_name: guestName, message })
-        .select('*')
-        .single();
+        .insert({ guest_name: guestName, message });
       if (error && isMissingTableOrBucketError(error)) {
         const res = await apiJson<{ wish: WishEntry }>('/api/wishes', {
           method: 'POST',
@@ -531,14 +555,14 @@ export const dataService = {
         });
         return res.wish;
       }
-      if (error || !data) {
-        throw new Error(error?.message || 'Gagal mengirim ucapan.');
+      if (error) {
+        throw new Error(error.message || 'Gagal mengirim ucapan.');
       }
       return {
-        id: String(data.id),
-        guestName: String(data.guest_name),
-        message: String(data.message),
-        createdAt: String(data.created_at),
+        id: `wish-local-${Date.now()}`,
+        guestName,
+        message,
+        createdAt,
       };
     }
     const res = await apiJson<{ wish: WishEntry }>('/api/wishes', {

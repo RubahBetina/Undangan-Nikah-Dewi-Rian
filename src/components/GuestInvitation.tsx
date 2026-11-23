@@ -14,6 +14,14 @@ import {
 import { FloralGateCurtain } from './FloralGateCurtain.tsx';
 import { MentalCanvas3D } from './MentalCanvas3D.tsx';
 import { SmokeBackdrop } from './SmokeBackdrop.tsx';
+import { WeddingVenueMapModal } from './WeddingVenueMap.tsx';
+import { buildGoogleMapsDirectionsUrl } from '../lib/googleMaps.ts';
+import {
+  DEFAULT_TYPOGRAPHY,
+  getFontCssFamily,
+  getSlotTextStyle,
+  mergeTypography,
+} from '../lib/typography.ts';
 import type { InvitationBundle, RsvpEntry, WishEntry } from '../types/wedding.ts';
 import { dataService } from '../services/dataService.ts';
 import { ambientMusic } from '../utils/ambientChime.ts';
@@ -63,7 +71,8 @@ export function GuestInvitation({
   const [musicOn, setMusicOn] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [rsvpModalOpen, setRsvpModalOpen] = useState(false);
-  const [copiedAccount, setCopiedAccount] = useState(false);
+  const [mapModalOpen, setMapModalOpen] = useState(false);
+  const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(() =>
     formatCountdown(settings.weddingDateIso),
   );
@@ -159,11 +168,36 @@ export function GuestInvitation({
     setMusicOn(next);
   };
 
-  const handleCopyBank = () => {
-    if (!settings.giftAccountNumber) return;
-    void navigator.clipboard?.writeText(settings.giftAccountNumber);
-    setCopiedAccount(true);
-    window.setTimeout(() => setCopiedAccount(false), 2200);
+  const giftList = useMemo(() => {
+    if (Array.isArray(settings.giftAccounts) && settings.giftAccounts.length > 0) {
+      return settings.giftAccounts;
+    }
+    if (settings.giftBankName || settings.giftAccountNumber) {
+      return [
+        {
+          id: 'gift-primary',
+          label: 'Rekening Tanda Kasih',
+          bankName: settings.giftBankName,
+          accountNumber: settings.giftAccountNumber,
+          accountHolder: settings.giftAccountHolder,
+        },
+      ];
+    }
+    return [];
+  }, [
+    settings.giftAccounts,
+    settings.giftBankName,
+    settings.giftAccountNumber,
+    settings.giftAccountHolder,
+  ]);
+
+  const handleCopyBank = (accountId: string, accountNumber: string) => {
+    if (!accountNumber) return;
+    void navigator.clipboard?.writeText(accountNumber);
+    setCopiedAccountId(accountId);
+    window.setTimeout(() => {
+      setCopiedAccountId((prev) => (prev === accountId ? null : prev));
+    }, 2200);
   };
 
   const scrollToFraction = (fraction: number) => {
@@ -220,6 +254,10 @@ export function GuestInvitation({
 
   const isClosingGateClosed = hasOpened && scrollProgress >= 0.975;
   const gateOpenState = hasOpened && !isClosingGateClosed;
+  const typo = useMemo(
+    () => mergeTypography(settings.typography),
+    [settings.typography],
+  );
 
   return (
     <div className="relative bg-[#FBF8F6] text-[#3A2D32]">
@@ -231,6 +269,7 @@ export function GuestInvitation({
         guestName={invitedGuestName}
         brideFullName={settings.brideFullName}
         groomFullName={settings.groomFullName}
+        typography={typo}
         onAction={isClosingGateClosed ? handleCloseToTop : handleOpenGate}
       />
 
@@ -278,40 +317,56 @@ export function GuestInvitation({
                 opacity: s1CoupleOpacity,
                 transform: `translateY(${(1 - s1CoupleOpacity) * -12}px)`,
               }}
-              className="pt-2 sm:pt-4 px-3 flex flex-col items-center justify-between h-full pb-6"
+              className="pt-2 sm:pt-4 px-1.5 sm:px-4 flex flex-col items-center justify-between h-full pb-6"
             >
               <SmokeBackdrop
                 imageUrl={settings.smokeImageUrl}
                 compact
-                className="w-full max-w-xl"
+                className="w-full max-w-2xl"
               >
-                <p className="font-script font-bold text-lg sm:text-xl text-[#5E826B] leading-none mb-1">
+                <p
+                  style={getSlotTextStyle(typo.weddingOf, DEFAULT_TYPOGRAPHY.weddingOf)}
+                  className="font-bold text-[#5E826B] leading-none mb-1"
+                >
                   The Wedding of
                 </p>
 
-                <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-5 w-full">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-1 sm:gap-5 w-full">
                   <div className="text-center min-w-0">
-                    <h1 className="font-script font-bold text-[22px] sm:text-3xl text-[#3A2D32] leading-tight break-words">
-                      {settings.brideFullName}
+                    <h1
+                      style={getSlotTextStyle(typo.coupleNames, DEFAULT_TYPOGRAPHY.coupleNames)}
+                      className="font-bold text-[#3A2D32] leading-[1.1] break-words"
+                    >
+                      {settings.groomFullName}
                     </h1>
-                    <p className="text-[10px] sm:text-[11px] font-medium text-[#5C4B51] leading-tight mt-0.5">
-                      {settings.brideParents}
+                    <p
+                      style={getSlotTextStyle(typo.coupleParents, DEFAULT_TYPOGRAPHY.coupleParents)}
+                      className="font-medium text-[#5C4B51] leading-tight mt-1"
+                    >
+                      {settings.groomParents}
                     </p>
                   </div>
 
                   <div
-                    className="font-script font-bold text-lg sm:text-2xl text-[#C47D8E] leading-none pt-1 px-0.5"
+                    style={getSlotTextStyle(typo.coupleNames, DEFAULT_TYPOGRAPHY.coupleNames, 0.82)}
+                    className="font-bold text-[#C47D8E] leading-none pt-1 px-0.5"
                     aria-hidden="true"
                   >
                     &amp;
                   </div>
 
                   <div className="text-center min-w-0">
-                    <h2 className="font-script font-bold text-[22px] sm:text-3xl text-[#3A2D32] leading-tight break-words">
-                      {settings.groomFullName}
+                    <h2
+                      style={getSlotTextStyle(typo.coupleNames, DEFAULT_TYPOGRAPHY.coupleNames)}
+                      className="font-bold text-[#3A2D32] leading-[1.1] break-words"
+                    >
+                      {settings.brideFullName}
                     </h2>
-                    <p className="text-[10px] sm:text-[11px] font-medium text-[#5C4B51] leading-tight mt-0.5">
-                      {settings.groomParents}
+                    <p
+                      style={getSlotTextStyle(typo.coupleParents, DEFAULT_TYPOGRAPHY.coupleParents)}
+                      className="font-medium text-[#5C4B51] leading-tight mt-1"
+                    >
+                      {settings.brideParents}
                     </p>
                   </div>
                 </div>
@@ -341,10 +396,16 @@ export function GuestInvitation({
                 imageUrl={settings.smokeImageUrl}
                 className="w-full max-w-lg"
               >
-                <h2 className="font-display text-xl sm:text-2xl font-bold tracking-wide text-[#6B8E78] mb-1.5">
+                <h2
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles, 0.9)}
+                  className="font-bold tracking-wide text-[#6B8E78] mb-1.5"
+                >
                   {settings.verseTitle}
                 </h2>
-                <p className="font-display italic text-lg sm:text-2xl font-medium text-[#3A2D32] leading-snug text-balance">
+                <p
+                  style={getSlotTextStyle(typo.verseQuote, DEFAULT_TYPOGRAPHY.verseQuote)}
+                  className="italic font-medium text-[#3A2D32] leading-snug text-balance"
+                >
                   “{settings.verseQuote}”
                 </p>
               </SmokeBackdrop>
@@ -364,13 +425,22 @@ export function GuestInvitation({
                 imageUrl={settings.smokeImageUrl}
                 className="w-full max-w-lg"
               >
-                <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#3A2D32] tracking-tight mb-0.5">
+                <h2
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles)}
+                  className="font-bold text-[#3A2D32] tracking-tight mb-0.5 leading-tight"
+                >
                   {settings.akadTitle} &amp; {settings.resepsiTitle}
                 </h2>
-                <p className="font-display text-lg sm:text-2xl font-bold text-[#6B8E78] leading-tight">
+                <p
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles, 0.8)}
+                  className="font-bold text-[#6B8E78] leading-tight"
+                >
                   {settings.displayDateText}
                 </p>
-                <p className="text-[11px] sm:text-xs font-medium text-[#3A2D32] mt-1.5 tabular-nums">
+                <p
+                  style={getSlotTextStyle(typo.bodyText, DEFAULT_TYPOGRAPHY.bodyText)}
+                  className="font-medium text-[#3A2D32] mt-1.5 tabular-nums"
+                >
                   Akad {settings.akadTime}
                   <span className="mx-1.5 text-[#C47D8E]" aria-hidden="true">
                     ·
@@ -385,10 +455,16 @@ export function GuestInvitation({
                     { label: 'Detik', value: countdown.seconds },
                   ].map((item) => (
                     <div key={item.label}>
-                      <div className="font-display text-2xl font-bold text-[#3A2D32] tabular-nums leading-none">
+                      <div
+                        style={{ fontFamily: getFontCssFamily(typo.sectionTitles.font) }}
+                        className="text-2xl font-bold text-[#3A2D32] tabular-nums leading-none"
+                      >
                         {String(item.value).padStart(2, '0')}
                       </div>
-                      <div className="text-[10px] font-medium text-[#6E5D63] mt-0.5">
+                      <div
+                        style={{ fontFamily: getFontCssFamily(typo.bodyText.font) }}
+                        className="text-[10px] font-medium text-[#6E5D63] mt-0.5"
+                      >
                         {item.label}
                       </div>
                     </div>
@@ -411,23 +487,46 @@ export function GuestInvitation({
                 imageUrl={settings.smokeImageUrl}
                 className="w-full max-w-lg"
               >
-                <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#3A2D32] tracking-tight mb-1">
+                <h2
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles)}
+                  className="font-bold text-[#3A2D32] tracking-tight mb-1 leading-tight"
+                >
                   Lokasi Acara
                 </h2>
-                <p className="font-display text-xl sm:text-2xl font-bold text-[#6B8E78] leading-tight text-balance">
+                <p
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles, 0.85)}
+                  className="font-bold text-[#6B8E78] leading-tight text-balance"
+                >
                   {settings.akadVenue}
                 </p>
-                <p className="text-[11px] sm:text-xs font-medium text-[#6E5D63] mt-1.5 leading-relaxed max-w-sm mx-auto">
+                <p
+                  style={getSlotTextStyle(typo.bodyText, DEFAULT_TYPOGRAPHY.bodyText)}
+                  className="font-medium text-[#6E5D63] mt-1.5 leading-relaxed max-w-sm mx-auto"
+                >
                   {settings.akadAddress}
                 </p>
-                <div className="mt-3 flex items-center justify-center gap-4 pointer-events-auto">
-                  <a
-                    href={settings.mapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#C47D8E] hover:underline whitespace-nowrap"
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 pointer-events-auto">
+                  <button
+                    type="button"
+                    onClick={() => setMapModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#C47D8E] px-3.5 py-1.5 text-[11px] font-medium text-white hover:bg-[#B46B7D] cursor-pointer whitespace-nowrap"
                   >
                     <MapPin className="w-3.5 h-3.5" />
+                    <span>Peta Interaktif</span>
+                  </button>
+                  <a
+                    href={buildGoogleMapsDirectionsUrl({
+                      venueName: settings.akadVenue,
+                      address: settings.akadAddress,
+                      lat: settings.venueLat,
+                      lng: settings.venueLng,
+                      placeId: settings.venuePlaceId,
+                      fallbackUrl: settings.mapsUrl,
+                    })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#C47D8E] hover:underline whitespace-nowrap"
+                  >
                     <span>Buka Google Maps</span>
                   </a>
                   <span className="text-[#D6CBC6]" aria-hidden="true">
@@ -453,43 +552,74 @@ export function GuestInvitation({
                 opacity: s5GiftOpacity,
                 transform: `translateY(${(1 - s5GiftOpacity) * 12}px)`,
               }}
-              className="pt-6 sm:pt-10 px-4"
+              className="pt-4 sm:pt-8 px-3 sm:px-4"
             >
               <SmokeBackdrop
                 imageUrl={settings.smokeImageUrl}
-                className="w-full max-w-lg"
+                compact={giftList.length > 1}
+                className={giftList.length > 1 ? 'w-full max-w-xl' : 'w-full max-w-lg'}
               >
-                <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#3A2D32] tracking-tight mb-1.5">
+                <h2
+                  style={getSlotTextStyle(typo.sectionTitles, DEFAULT_TYPOGRAPHY.sectionTitles)}
+                  className="font-bold text-[#3A2D32] tracking-tight mb-1 leading-tight"
+                >
                   {settings.giftTitle}
                 </h2>
-                <p className="text-[11px] sm:text-xs text-[#6E5D63] leading-relaxed max-w-sm mx-auto">
+                <p
+                  style={getSlotTextStyle(typo.bodyText, DEFAULT_TYPOGRAPHY.bodyText)}
+                  className="text-[#6E5D63] leading-relaxed max-w-md mx-auto"
+                >
                   {settings.giftMessage}
                 </p>
-                <div className="mt-2.5 text-xs font-semibold text-[#3A2D32] tabular-nums">
-                  {settings.giftBankName} · {settings.giftAccountNumber}
-                </div>
-                <p className="text-[11px] text-[#6E5D63]">
-                  {settings.giftAccountHolder}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-3 pointer-events-auto">
-                  <button
-                    type="button"
-                    onClick={handleCopyBank}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-[#C47D8E] px-4 py-1.5 text-[11px] font-medium text-white hover:bg-[#B46B7D] cursor-pointer whitespace-nowrap"
-                  >
-                    {copiedAccount ? (
-                      <>
-                        <Check className="w-3 h-3" />
-                        <span>Tersalin</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span>Salin Rekening</span>
-                      </>
-                    )}
-                  </button>
 
+                {giftList.length > 0 && (
+                  <div
+                    style={{ fontFamily: getFontCssFamily(typo.bodyText.font) }}
+                    className={`mt-2.5 grid gap-2.5 pointer-events-auto ${
+                      giftList.length > 1
+                        ? 'grid-cols-2 max-w-lg mx-auto'
+                        : 'grid-cols-1 max-w-xs mx-auto'
+                    }`}
+                  >
+                    {giftList.map((acc) => {
+                      const isCopied = copiedAccountId === acc.id;
+                      return (
+                        <div key={acc.id} className="text-center px-1.5 py-1">
+                          {acc.label && (
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#5E826B]">
+                              {acc.label}
+                            </p>
+                          )}
+                          <div className="text-xs font-bold text-[#3A2D32] tabular-nums mt-0.5">
+                            {acc.bankName} · {acc.accountNumber}
+                          </div>
+                          <p className="text-[10px] sm:text-[11px] text-[#6E5D63] truncate">
+                            {acc.accountHolder}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyBank(acc.id, acc.accountNumber)}
+                            className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-[#C47D8E] px-3 py-1 text-[10px] sm:text-[11px] font-medium text-white hover:bg-[#B46B7D] cursor-pointer whitespace-nowrap"
+                          >
+                            {isCopied ? (
+                              <>
+                                <Check className="w-3 h-3" />
+                                <span>Tersalin</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span>Salin Rekening</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-3 flex items-center justify-center pointer-events-auto">
                   <button
                     type="button"
                     onClick={() => setRsvpModalOpen(true)}
@@ -516,20 +646,30 @@ export function GuestInvitation({
                 imageUrl={settings.smokeImageUrl}
                 className="w-full max-w-lg"
               >
-                <p className="text-[10px] tracking-[0.22em] uppercase text-[#6B8E78] font-bold mb-1">
+                <p
+                  style={{ fontFamily: getFontCssFamily(typo.bodyText.font) }}
+                  className="text-[10px] tracking-[0.22em] uppercase text-[#6B8E78] font-bold mb-1"
+                >
                   Sampai Jumpa di Hari Bahagia
                 </p>
-                <h2 className="font-script font-bold text-4xl sm:text-5xl text-[#3A2D32] leading-tight">
+                <h2
+                  style={getSlotTextStyle(typo.closingTitle, DEFAULT_TYPOGRAPHY.closingTitle)}
+                  className="font-bold text-[#3A2D32] leading-tight"
+                >
                   {settings.closingThanksTitle}
                 </h2>
-                <p className="text-xs sm:text-sm text-[#6E5D63] mt-2 leading-relaxed max-w-sm mx-auto">
+                <p
+                  style={getSlotTextStyle(typo.bodyText, DEFAULT_TYPOGRAPHY.bodyText, 1.05)}
+                  className="text-[#6E5D63] mt-2 leading-relaxed max-w-sm mx-auto"
+                >
                   {settings.closingThanksMessage}
                 </p>
                 <p
                   onClick={handleSecretTap}
-                  className="pointer-events-auto font-script font-bold text-2xl sm:text-3xl text-[#C47D8E] mt-2.5 select-none leading-tight"
+                  style={getSlotTextStyle(typo.coupleNames, DEFAULT_TYPOGRAPHY.coupleNames, 1.05)}
+                  className="pointer-events-auto font-bold text-[#C47D8E] mt-2.5 select-none leading-tight"
                 >
-                  {settings.brideFullName} &amp; {settings.groomFullName}
+                  {settings.groomFullName} &amp; {settings.brideFullName}
                 </p>
               </SmokeBackdrop>
             </div>
@@ -657,6 +797,13 @@ export function GuestInvitation({
           </div>
         </div>
       )}
+
+      {/* Interactive Google Maps Venue Modal */}
+      <WeddingVenueMapModal
+        open={mapModalOpen}
+        onClose={() => setMapModalOpen(false)}
+        settings={settings}
+      />
 
       {/* Full Mental Canvas Scroll Runway (680vh — zero solid webpage block at bottom!) */}
       <div className="h-[680vh] pointer-events-none" aria-hidden="true" />
