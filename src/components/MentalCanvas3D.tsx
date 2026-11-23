@@ -187,15 +187,48 @@ function buildProcessedTexture(
   const naturalH = img.naturalHeight || 512;
   const aspect = naturalW / Math.max(1, naturalH);
 
-  const maxDim = Math.min(2048, maxTexDim || 2048);
+  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
+  const targetCap = isMobileViewport
+    ? removeWhiteBg
+      ? 768
+      : 960
+    : removeWhiteBg
+      ? 1024
+      : 1280;
+  const maxDim = Math.min(targetCap, maxTexDim || targetCap);
   const scale = Math.min(1, maxDim / Math.max(naturalW, naturalH));
   const w = Math.max(2, Math.round(naturalW * scale));
   const h = Math.max(2, Math.round(naturalH * scale));
 
+  // Fast-path for full-bleed solid backdrops without pixel cutout/portal processing
+  if (!removeWhiteBg && !centerWindow) {
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d');
+    if (ctx) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, w, h);
+      const texture = new THREE.CanvasTexture(offscreen);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = Math.min(4, maxAnisotropy);
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      texture.magFilter = THREE.LinearFilter;
+      texture.generateMipmaps = true;
+      texture.needsUpdate = true;
+      return { texture, aspect };
+    }
+    const rawTex = new THREE.Texture(img);
+    rawTex.colorSpace = THREE.SRGBColorSpace;
+    rawTex.needsUpdate = true;
+    return { texture: rawTex, aspect };
+  }
+
   const offscreen = document.createElement('canvas');
   offscreen.width = w;
   offscreen.height = h;
-  const ctx = offscreen.getContext('2d');
+  const ctx = offscreen.getContext('2d', { willReadFrequently: true });
   let finalCanvas: HTMLCanvasElement = offscreen;
   let finalAspect = aspect;
 
@@ -204,15 +237,21 @@ function buildProcessedTexture(
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, 0, 0, w, h);
 
-    const checkCorner = (cx: number, cy: number) =>
-      ctx.getImageData(cx, cy, 1, 1).data[3] < 24;
-    const hasNativeAlphaEdges =
-      checkCorner(0, 0) ||
-      checkCorner(w - 1, 0) ||
-      checkCorner(0, h - 1) ||
-      checkCorner(w - 1, h - 1);
+    let canReadPixels = true;
+    let hasNativeAlphaEdges = false;
+    try {
+      const checkCorner = (cx: number, cy: number) =>
+        ctx.getImageData(cx, cy, 1, 1).data[3] < 24;
+      hasNativeAlphaEdges =
+        checkCorner(0, 0) ||
+        checkCorner(w - 1, 0) ||
+        checkCorner(0, h - 1) ||
+        checkCorner(w - 1, h - 1);
+    } catch {
+      canReadPixels = false;
+    }
 
-    if (removeWhiteBg || centerWindow || hasNativeAlphaEdges) {
+    if (canReadPixels && (removeWhiteBg || centerWindow || hasNativeAlphaEdges)) {
       const imageData = ctx.getImageData(0, 0, w, h);
       const data = imageData.data;
 
@@ -481,6 +520,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       selectionOutline: THREE.LineSegments;
       editorGrid: THREE.GridHelper;
       textureCache: Map<string, CachedTextureEntry>;
+      inFlightTextures: Map<string, Promise<CachedTextureEntry>>;
       maxAnisotropy: number;
       maxTexDim: number;
     } | null>(null);
@@ -532,9 +572,12 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       const maxTexDim = renderer.capabilities.maxTextureSize || 2048;
 
       // Keep crisp pastel ink & watercolor clarity without ACES contrast compression
+      const isMobileScreen = width < 768;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.NoToneMapping;
-      renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2.5));
+      renderer.setPixelRatio(
+        isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, isMobileScreen ? 1.75 : 2),
+      );
       renderer.setSize(width, height);
       renderer.domElement.style.display = 'block';
       renderer.domElement.style.width = '100%';
@@ -570,7 +613,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
       scene.add(selectionOutline);
 
       // Falling Sakura & Rose Petals (InstancedMesh keeping active density in front of camera)
-      const petalCount = 150;
+      const petalCount = isMobileScreen || isSoftwareGl ? 75 : 135;
       const petalTex = createWatercolorPetalTexture();
       const petalGeo = new THREE.PlaneGeometry(0.16, 0.22);
       const petalMat = new THREE.MeshBasicMaterial({
@@ -770,6 +813,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
 
       const meshMap = new Map<string, THREE.Mesh>();
       const textureCache = new Map<string, CachedTextureEntry>();
+      const inFlightTextures = new Map<string, Promise<CachedTextureEntry>>();
 
       threeStateRef.current = {
         scene,
@@ -782,6 +826,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         selectionOutline,
         editorGrid,
         textureCache,
+        inFlightTextures,
         maxAnisotropy,
         maxTexDim,
       };
@@ -957,14 +1002,14 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
           }
 
           const mat = mesh.material as THREE.MeshBasicMaterial;
-          if (!el.visible) {
+          if (!el.visible || !mat.map) {
             mesh.visible = false;
             continue;
           }
 
           const distFromCam = camera.position.z - el.z;
           if (!useOrbit) {
-            if (distFromCam <= 0.15) {
+            if (distFromCam <= 0.15 || distFromCam > 22) {
               mesh.visible = false;
               continue;
             }
@@ -1199,6 +1244,7 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         doveWingTex.dispose();
         textureCache.forEach((entry) => entry.texture.dispose());
         textureCache.clear();
+        inFlightTextures.clear();
         meshMap.forEach((m) => {
           m.geometry.dispose();
           if (Array.isArray(m.material)) m.material.forEach((mt) => mt.dispose());
@@ -1245,10 +1291,85 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
         }
       });
 
+      let cancelled = false;
+      const timerIds: number[] = [];
+
+      const loadOrReuseTexture = (el: CanvasElement, cacheKey: string) => {
+        const cached = st.textureCache.get(cacheKey);
+        if (cached) return Promise.resolve(cached);
+
+        const existing = st.inFlightTextures.get(cacheKey);
+        if (existing) return existing;
+
+        const promise = new Promise<CachedTextureEntry>((resolve, reject) => {
+          const runProcessing = (img: HTMLImageElement, forceRaw = false) => {
+            window.setTimeout(() => {
+              if (!threeStateRef.current) {
+                reject(new Error('disposed'));
+                return;
+              }
+              try {
+                const entry = forceRaw
+                  ? (() => {
+                      const tex = new THREE.Texture(img);
+                      tex.colorSpace = THREE.SRGBColorSpace;
+                      tex.needsUpdate = true;
+                      return {
+                        texture: tex,
+                        aspect: (img.naturalWidth || 512) / Math.max(1, img.naturalHeight || 512),
+                      };
+                    })()
+                  : buildProcessedTexture(
+                      img,
+                      el.removeWhiteBg,
+                      Boolean(el.centerWindow),
+                      st.maxAnisotropy,
+                      st.maxTexDim,
+                    );
+                st.textureCache.set(cacheKey, entry);
+                st.inFlightTextures.delete(cacheKey);
+                resolve(entry);
+              } catch (err) {
+                st.inFlightTextures.delete(cacheKey);
+                reject(err);
+              }
+            }, 0);
+          };
+
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.decoding = 'async';
+          img.onload = () => {
+            if (typeof img.decode === 'function') {
+              img.decode().catch(() => undefined).finally(() => runProcessing(img));
+            } else {
+              runProcessing(img);
+            }
+          };
+          img.onerror = () => {
+            // Retry without crossOrigin for external CDN URLs lacking CORS headers
+            const fallbackImg = new Image();
+            fallbackImg.decoding = 'async';
+            fallbackImg.onload = () => runProcessing(fallbackImg, true);
+            fallbackImg.onerror = () => {
+              st.inFlightTextures.delete(cacheKey);
+              reject(new Error(`Failed loading ${el.url}`));
+            };
+            fallbackImg.src = el.url;
+          };
+          img.src = el.url;
+        });
+
+        st.inFlightTextures.set(cacheKey, promise);
+        return promise;
+      };
+
       // Sort back-to-front by Z (with sortOrder tie-breaker) for clean transparent layering
       const sortedByZ = [...elements].sort(
         (a, b) => a.z - b.z || a.sortOrder - b.sortOrder,
       );
+
+      const pendingLoads: Array<{ el: CanvasElement; mesh: THREE.Mesh; cacheKey: string }> = [];
 
       sortedByZ.forEach((el, idx) => {
         let mesh = st.meshMap.get(el.id);
@@ -1263,49 +1384,71 @@ export const MentalCanvas3D = forwardRef<MentalCanvas3DHandle, MentalCanvas3DPro
             depthWrite: false,
           });
           mesh = new THREE.Mesh(geo, mat);
+          mesh.visible = false; // Never show untextured white placeholder plane
           mesh.userData.elementId = el.id;
           mesh.userData.aspect = 1;
           st.elementGroup.add(mesh);
           st.meshMap.set(el.id, mesh);
         }
 
-        mesh.visible = el.visible;
         mesh.renderOrder = idx + 1;
         const mat = mesh.material as THREE.MeshBasicMaterial;
         mat.opacity = el.opacity;
 
         const cacheKey = `${el.url}|${el.removeWhiteBg ? 'cutout' : 'raw'}|${el.centerWindow ? 'win' : 'solid'}`;
-        if (mesh.userData.textureKey !== cacheKey) {
-          mesh.userData.textureKey = cacheKey;
-          const cached = st.textureCache.get(cacheKey);
-          if (cached) {
+        const cached = st.textureCache.get(cacheKey);
+        mesh.userData.textureKey = cacheKey;
+        if (cached) {
+          if (mat.map !== cached.texture) {
             mat.map = cached.texture;
             mat.needsUpdate = true;
-            mesh.userData.aspect = cached.aspect;
-          } else {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-              if (!threeStateRef.current) return;
-              const entry = buildProcessedTexture(
-                img,
-                el.removeWhiteBg,
-                Boolean(el.centerWindow),
-                st.maxAnisotropy,
-                st.maxTexDim,
-              );
-              st.textureCache.set(cacheKey, entry);
-              if (mesh && mesh.userData.textureKey === cacheKey) {
-                const m = mesh.material as THREE.MeshBasicMaterial;
-                m.map = entry.texture;
-                m.needsUpdate = true;
-                mesh.userData.aspect = entry.aspect;
-              }
-            };
-            img.src = el.url;
           }
+          mesh.userData.aspect = cached.aspect;
+          mesh.visible = el.visible;
+        } else {
+          mat.map = null;
+          mesh.visible = false;
+          pendingLoads.push({ el, mesh, cacheKey });
         }
       });
+
+      // Load Scene 1 (chapterIndex === 0) immediately, then stagger deeper scenes so initial render never stalls
+      pendingLoads.sort((a, b) => a.el.chapterIndex - b.el.chapterIndex);
+
+      const attachTexture = (item: { el: CanvasElement; mesh: THREE.Mesh; cacheKey: string }) => {
+        loadOrReuseTexture(item.el, item.cacheKey)
+          .then((entry) => {
+            if (cancelled || !threeStateRef.current) return;
+            if (item.mesh.userData.textureKey === item.cacheKey) {
+              const m = item.mesh.material as THREE.MeshBasicMaterial;
+              m.map = entry.texture;
+              m.needsUpdate = true;
+              item.mesh.userData.aspect = entry.aspect;
+              item.mesh.visible = item.el.visible;
+            }
+          })
+          .catch(() => {
+            // Ignore failed or superseded image load
+          });
+      };
+
+      const scene1Items = pendingLoads.filter((item) => item.el.chapterIndex === 0);
+      const laterItems = pendingLoads.filter((item) => item.el.chapterIndex > 0);
+
+      scene1Items.forEach(attachTexture);
+
+      laterItems.forEach((item, idx) => {
+        const delayMs = Math.min(900, 140 + item.el.chapterIndex * 110 + idx * 18);
+        const id = window.setTimeout(() => {
+          if (!cancelled) attachTexture(item);
+        }, delayMs);
+        timerIds.push(id);
+      });
+
+      return () => {
+        cancelled = true;
+        timerIds.forEach((id) => window.clearTimeout(id));
+      };
     }, [elements]);
 
     // 4. Sync TransformControls attachment & gizmo mode in Editor

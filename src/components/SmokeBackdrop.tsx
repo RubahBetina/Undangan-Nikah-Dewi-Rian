@@ -36,7 +36,7 @@ export function SmokeBackdrop({
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       if (cancelled) return;
-      const w = Math.min(1280, img.naturalWidth || 1280);
+      const w = Math.min(640, img.naturalWidth || 640);
       const h = Math.max(
         2,
         Math.round((w * (img.naturalHeight || 720)) / Math.max(1, img.naturalWidth || 1280)),
