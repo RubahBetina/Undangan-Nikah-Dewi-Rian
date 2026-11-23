@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { APIProvider, useMapsLibrary } from '@vis.gl/react-google-maps';
-import { CheckCircle2, MapPin, Search } from 'lucide-react';
+import { CheckCircle2, MapPin, RotateCcw, Search } from 'lucide-react';
 import {
   GMP_ATTRIBUTION_ID,
   buildGoogleMapsDirectionsUrl,
@@ -42,7 +42,7 @@ function ImperativePlaceAutocomplete({ onSelectPlace }: AutocompleteMountProps) 
     autocomplete.setAttribute('internal-usage-attribution-ids', GMP_ATTRIBUTION_ID);
     autocomplete.setAttribute(
       'placeholder',
-      'Cari nama gedung, hotel, taman, atau alamat di Google Maps...',
+      'Cari nama gedung, hotel, taman, atau desa terdekat di Google Maps...',
     );
     autocomplete.style.width = '100%';
     autocomplete.style.display = 'block';
@@ -119,9 +119,16 @@ function ImperativePlaceAutocomplete({ onSelectPlace }: AutocompleteMountProps) 
 interface VenuePlacePickerProps {
   settings: WeddingSettings;
   onSelectPlace: (place: SelectedPlaceResult) => void;
+  onPickCoords?: (coords: { lat: number; lng: number }) => void;
+  onClearPin?: () => void;
 }
 
-export function VenuePlacePicker({ settings, onSelectPlace }: VenuePlacePickerProps) {
+export function VenuePlacePicker({
+  settings,
+  onSelectPlace,
+  onPickCoords,
+  onClearPin,
+}: VenuePlacePickerProps) {
   const apiKey = getGoogleMapsApiKey();
   const hasPinnedCoords =
     typeof settings.venueLat === 'number' && typeof settings.venueLng === 'number';
@@ -133,21 +140,34 @@ export function VenuePlacePicker({ settings, onSelectPlace }: VenuePlacePickerPr
           <Search className="w-4 h-4 text-[#C47D8E]" />
           <div>
             <p className="text-xs font-semibold text-[#3A2D32]">
-              Cari &amp; Tandai Lokasi Resmi via Google Maps
+              Cari, Tempel Link, atau Geser Pin Lokasi Acara
             </p>
             <p className="text-[11px] text-[#6E5D63]">
-              Pilih gedung/lokasi dari saran Google Places agar pin peta interaktif &amp; rute tamu akurat.
+              Untuk acara di rumah pribadi, Anda bisa tempel link Google Maps / koordinat di bawah atau klik langsung di peta.
             </p>
           </div>
         </div>
 
         {hasPinnedCoords && (
-          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#3B5B47]">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            <span className="tabular-nums">
-              Pin Terpasang ({settings.venueLat?.toFixed(4)}, {settings.venueLng?.toFixed(4)})
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#3B5B47]">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span className="tabular-nums">
+                Pin Terpasang ({settings.venueLat?.toFixed(5)}, {settings.venueLng?.toFixed(5)})
+              </span>
             </span>
-          </span>
+            {onClearPin && (
+              <button
+                type="button"
+                onClick={onClearPin}
+                title="Hapus koordinat pin tersimpan"
+                className="inline-flex items-center gap-1 rounded-lg border border-[#DFD6D1] bg-white px-2 py-0.5 text-[10px] font-medium text-[#6E5D63] hover:text-[#8F3A4E] cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Pin</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -162,14 +182,16 @@ export function VenuePlacePicker({ settings, onSelectPlace }: VenuePlacePickerPr
             lng={settings.venueLng}
             placeId={settings.venuePlaceId}
             mapsUrl={settings.mapsUrl}
-            heightClass="h-[240px] sm:h-[270px]"
+            heightClass="h-[250px] sm:h-[280px]"
+            editable={Boolean(onPickCoords)}
+            onPickCoords={onPickCoords}
           />
         </APIProvider>
       ) : (
-        <div className="rounded-xl border border-[#DFD6D1] bg-white px-3.5 py-2.5 text-xs text-[#6E5D63] flex items-center gap-2">
-          <MapPin className="w-4 h-4 text-[#C47D8E] shrink-0" />
+        <div className="rounded-xl border border-[#DFD6D1] bg-white px-3.5 py-2.5 text-xs text-[#6E5D63] flex items-start gap-2.5 leading-relaxed">
+          <MapPin className="w-4 h-4 text-[#C47D8E] shrink-0 mt-0.5" />
           <span>
-            Kunci Google Maps belum aktif di environment. Anda tetap bisa mengisi nama tempat, alamat, dan tautan Google Maps secara manual di bawah.
+            <strong>Peta Interaktif belum aktif</strong> karena <code className="px-1 py-0.5 rounded bg-[#F5EEEC] text-[#3A2D32]">VITE_GOOGLE_MAPS_API_KEY</code> belum diisi di Environment Variables (Vercel / <code className="px-1 py-0.5 rounded bg-[#F5EEEC] text-[#3A2D32]">.env</code>). Anda tetap bisa mengisi <strong>Link Google Maps</strong> atau <strong>Koordinat (Lat, Lng)</strong> di bawah agar tombol &ldquo;Buka Google Maps&rdquo; mengarah tepat ke lokasi.
           </span>
         </div>
       )}

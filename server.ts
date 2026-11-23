@@ -14,6 +14,7 @@ import {
   DEFAULT_WISHES,
 } from './src/data/defaultSeed.ts';
 import { mergeTypography } from './src/lib/typography.ts';
+import { resolveGoogleMapsTarget } from './api/resolve-maps-url.ts';
 import type {
   AdminUser,
   AssetCategory,
@@ -362,6 +363,24 @@ async function startServer() {
   // Health endpoint
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, mode: 'express-local' });
+  });
+
+  // Safe Google Maps short-link resolver (SSRF-allowlisted)
+  app.get('/api/resolve-maps-url', async (req, res) => {
+    const rawUrl = typeof req.query.url === 'string' ? req.query.url.trim() : '';
+    if (!rawUrl) {
+      res.status(400).json({ error: 'Parameter url wajib diisi.' });
+      return;
+    }
+    try {
+      const result = await resolveGoogleMapsTarget(rawUrl);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({
+        error: err instanceof Error ? err.message : 'Gagal membaca link Google Maps.',
+      });
+    }
   });
 
   // =========================================================================

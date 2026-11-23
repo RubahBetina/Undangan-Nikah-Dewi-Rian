@@ -5,6 +5,7 @@ import {
   AdvancedMarker,
   InfoWindow,
   Map as GoogleMap,
+  type MapMouseEvent,
   Pin,
   useAdvancedMarkerRef,
   useApiLoadingStatus,
@@ -16,9 +17,14 @@ import {
   GMP_ATTRIBUTION_ID,
   buildGoogleMapsDirectionsUrl,
   getGoogleMapsApiKey,
+  isShortGoogleMapsUrl,
+  parseCoordsFromGoogleMapsInput,
   reportGmpQuotaIfExceeded,
+  resolveGoogleMapsUrlCoords,
 } from '../lib/googleMaps.ts';
 import type { WeddingSettings } from '../types/wedding.ts';
+
+const DEFAULT_SEED_MAPS_URL = 'https://maps.google.com/?q=Dago+Pakar+Bandung';
 
 interface ResolvedVenueLocation {
   lat: number;
@@ -36,6 +42,8 @@ interface VenueMapCanvasProps {
   placeId?: string;
   mapsUrl?: string;
   heightClass?: string;
+  editable?: boolean;
+  onPickCoords?: (coords: { lat: number; lng: number }) => void;
   onResolvedLocation?: (loc: ResolvedVenueLocation) => void;
 }
 
@@ -48,6 +56,8 @@ export function VenueMapCanvas({
   placeId,
   mapsUrl,
   heightClass = 'h-[340px] sm:h-[400px]',
+  editable = false,
+  onPickCoords,
   onResolvedLocation,
 }: VenueMapCanvasProps) {
   const map = useMap();
@@ -58,10 +68,21 @@ export function VenueMapCanvas({
   const [searchedLoc, setSearchedLoc] = useState<ResolvedVenueLocation | null>(null);
   const [searching, setSearching] = useState(false);
 
-  const hasExplicitCoords = typeof lat === 'number' && typeof lng === 'number';
+  const hasExplicitCoords =
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng);
+
+  const parsedUrlCoords = !hasExplicitCoords
+    ? parseCoordsFromGoogleMapsInput(mapsUrl || '')
+    : null;
+
   const activeLoc: ResolvedVenueLocation | null = hasExplicitCoords
     ? { lat: lat as number, lng: lng as number, placeId }
-    : searchedLoc;
+    : parsedUrlCoords
+      ? { lat: parsedUrlCoords.lat, lng: parsedUrlCoords.lng }
+      : searchedLoc;
 
   // Dispatch Tier 2 quota notification if Maps JS API fails auth
   useEffect(() => {
@@ -70,20 +91,56 @@ export function VenueMapCanvas({
     }
   }, [loadingStatus]);
 
-  // Dynamically resolve coordinates from Places API (New) when admin hasn't pinned a place yet
+  // Reset cached searchedLoc whenever explicit coords or custom mapsUrl changes
   useEffect(() => {
-    if (hasExplicitCoords || !placesLib) return;
+    setSearchedLoc(null);
+  }, [lat, lng, mapsUrl]);
+
+  // Resolve coordinates accurately:
+  // 1) Try resolving short Google Maps links (maps.app.goo.gl / goo.gl/maps) first.
+  // 2) Only fall back to Places Text Search when NO custom mapsUrl was entered (prevents
+  //    private names like "Rumah Mempelai Wanita" from snapping to random public places).
+  useEffect(() => {
+    if (hasExplicitCoords || parsedUrlCoords) return;
+
+    const trimmedMapsUrl = (mapsUrl || '').trim();
+    const hasCustomMapsUrl =
+      Boolean(trimmedMapsUrl) &&
+      /^https?:\/\//i.test(trimmedMapsUrl) &&
+      trimmedMapsUrl !== DEFAULT_SEED_MAPS_URL;
+
     let cancelled = false;
 
-    const resolveFromPlaces = async () => {
+    const resolveLocation = async () => {
       setSearching(true);
-      const queries = [
-        [venueName, address].filter(Boolean).join(', ').trim(),
-        address.trim(),
-        cityLocation.trim(),
-      ].filter((q, idx, arr) => Boolean(q) && arr.indexOf(q) === idx);
-
       try {
+        if (hasCustomMapsUrl && isShortGoogleMapsUrl(trimmedMapsUrl)) {
+          const resolved = await resolveGoogleMapsUrlCoords(trimmedMapsUrl);
+          if (cancelled) return;
+          if (resolved) {
+            const loc: ResolvedVenueLocation = {
+              lat: resolved.lat,
+              lng: resolved.lng,
+              resolvedLabel: venueName,
+            };
+            setSearchedLoc(loc);
+            onResolvedLocation?.(loc);
+            return;
+          }
+        }
+
+        // Do NOT guess coordinates from text when admin pasted a custom Google Maps link!
+        if (hasCustomMapsUrl) {
+          return;
+        }
+
+        if (!placesLib) return;
+        const queries = [
+          [venueName, address].filter(Boolean).join(', ').trim(),
+          address.trim(),
+          cityLocation.trim(),
+        ].filter((q, idx, arr) => Boolean(q) && arr.indexOf(q) === idx);
+
         for (const textQuery of queries) {
           if (cancelled) return;
           const { places } = await placesLib.Place.searchByText({
@@ -115,13 +172,23 @@ export function VenueMapCanvas({
       }
     };
 
-    void resolveFromPlaces();
+    void resolveLocation();
     return () => {
       cancelled = true;
     };
-  }, [hasExplicitCoords, placesLib, venueName, address, cityLocation, onResolvedLocation]);
+  }, [
+    hasExplicitCoords,
+    parsedUrlCoords?.lat,
+    parsedUrlCoords?.lng,
+    placesLib,
+    mapsUrl,
+    venueName,
+    address,
+    cityLocation,
+    onResolvedLocation,
+  ]);
 
-  // Smoothly pan map when coordinates change (e.g., admin selects a different venue)
+  // Smoothly pan map when coordinates change (e.g., admin selects or pastes a different venue)
   useEffect(() => {
     if (!map || !activeLoc) return;
     map.panTo({ lat: activeLoc.lat, lng: activeLoc.lng });
@@ -162,51 +229,87 @@ export function VenueMapCanvas({
     );
   }
 
-  if (!activeLoc) {
+  if (!activeLoc && !editable) {
     return (
       <div
-        className={`${heightClass} w-full rounded-2xl border border-[#E6DFDB] bg-[#FBF8F6] flex flex-col items-center justify-center p-6 text-center space-y-2`}
+        className={`${heightClass} w-full rounded-2xl border border-[#E6DFDB] bg-[#FBF8F6] flex flex-col items-center justify-center p-6 text-center space-y-3`}
       >
-        <MapPin className="w-6 h-6 text-[#C47D8E] animate-pulse" />
-        <p className="text-xs text-[#6E5D63]">
-          {searching
-            ? 'Menentukan titik lokasi acara di Google Maps...'
-            : 'Memuat peta interaktif Google Maps...'}
-        </p>
+        <MapPin className={`w-6 h-6 text-[#C47D8E] ${searching ? 'animate-pulse' : ''}`} />
+        {searching ? (
+          <p className="text-xs text-[#6E5D63]">
+            Menentukan titik lokasi acara dari Google Maps...
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <p className="font-display text-xl font-bold text-[#3A2D32]">{venueName}</p>
+              <p className="text-xs text-[#6E5D63] max-w-xs mx-auto">{address}</p>
+            </div>
+            <a
+              href={directionsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#C47D8E] px-4 py-2 text-xs font-medium text-white hover:bg-[#B46B7D]"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+              <span>Buka Lokasi di Google Maps</span>
+            </a>
+          </>
+        )}
       </div>
     );
   }
+
+  const initialCenter = activeLoc
+    ? { lat: activeLoc.lat, lng: activeLoc.lng }
+    : { lat: -6.9175, lng: 107.6191 };
+
+  const handleMapClick = (ev: MapMouseEvent) => {
+    if (!editable || !onPickCoords) return;
+    const latLng = ev.detail.latLng;
+    if (latLng) {
+      onPickCoords({ lat: latLng.lat, lng: latLng.lng });
+    }
+  };
 
   return (
     <div
       className={`${heightClass} w-full rounded-2xl overflow-hidden border border-[#E6DFDB] bg-[#F4EFEA] relative`}
     >
       <GoogleMap
-        defaultCenter={{ lat: activeLoc.lat, lng: activeLoc.lng }}
-        defaultZoom={15}
+        defaultCenter={initialCenter}
+        defaultZoom={activeLoc ? 16 : 11}
         mapId="DEMO_MAP_ID"
         gestureHandling="greedy"
         streetViewControl={false}
         mapTypeControl={false}
         fullscreenControl
+        onClick={editable ? handleMapClick : undefined}
         internalUsageAttributionIds={[GMP_ATTRIBUTION_ID]}
         style={{ width: '100%', height: '100%' }}
       >
-        <AdvancedMarker
-          ref={markerRef}
-          position={{ lat: activeLoc.lat, lng: activeLoc.lng }}
-          title={venueName}
-          onClick={() => setInfoOpen(true)}
-        >
-          <Pin
-            background="#C47D8E"
-            borderColor="#8F4A5B"
-            glyphColor="#FFFFFF"
-            scale={1.15}
-          />
-        </AdvancedMarker>
+        {activeLoc && (
+          <AdvancedMarker
+            ref={markerRef}
+            position={{ lat: activeLoc.lat, lng: activeLoc.lng }}
+            title={venueName}
+            draggable={editable}
+            onClick={() => setInfoOpen(true)}
+            onDragEnd={(e: google.maps.MapMouseEvent) => {
+              if (!editable || !onPickCoords || !e.latLng) return;
+              onPickCoords({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+            }}
+          >
+            <Pin
+              background="#C47D8E"
+              borderColor="#8F4A5B"
+              glyphColor="#FFFFFF"
+              scale={1.15}
+            />
+          </AdvancedMarker>
+        )}
 
-        {infoOpen && marker && (
+        {!editable && infoOpen && marker && (
           <InfoWindow
             anchor={marker}
             maxWidth={240}
@@ -230,6 +333,16 @@ export function VenueMapCanvas({
           </InfoWindow>
         )}
       </GoogleMap>
+
+      {editable && (
+        <div className="pointer-events-none absolute bottom-2.5 left-2.5 right-2.5 flex justify-center">
+          <span className="rounded-lg bg-white/95 border border-[#E6DFDB] px-2.5 py-1 text-[10px] font-medium text-[#3A2D32] shadow-xs">
+            {activeLoc
+              ? 'Klik area peta atau geser pin pink untuk meluruskan titik rumah/gedung.'
+              : 'Klik langsung di peta untuk menandai titik lokasi acara.'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

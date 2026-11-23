@@ -1,5 +1,21 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Minus, Music, Plus, RotateCcw, Save, Trash2, Type, Upload } from 'lucide-react';
+import {
+  Crosshair,
+  Loader2,
+  Minus,
+  Music,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+  Type,
+  Upload,
+} from 'lucide-react';
+import {
+  isShortGoogleMapsUrl,
+  parseCoordsFromGoogleMapsInput,
+  resolveGoogleMapsUrlCoords,
+} from '../lib/googleMaps.ts';
 import {
   DEFAULT_TYPOGRAPHY,
   FONT_OPTIONS,
@@ -45,13 +61,144 @@ export function AdminSettingsPanel({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [uploadingMusic, setUploadingMusic] = useState(false);
   const musicInputRef = useRef<HTMLInputElement | null>(null);
+  const [coordsInput, setCoordsInput] = useState(() =>
+    typeof settings.venueLat === 'number' && typeof settings.venueLng === 'number'
+      ? `${settings.venueLat.toFixed(6)}, ${settings.venueLng.toFixed(6)}`
+      : '',
+  );
+  const [resolvingMapsUrl, setResolvingMapsUrl] = useState(false);
+  const [mapsResolveStatus, setMapsResolveStatus] = useState<{
+    type: 'success' | 'info' | 'error';
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     setForm({
       ...settings,
       typography: mergeTypography(settings.typography),
     });
+    setCoordsInput(
+      typeof settings.venueLat === 'number' && typeof settings.venueLng === 'number'
+        ? `${settings.venueLat.toFixed(6)}, ${settings.venueLng.toFixed(6)}`
+        : '',
+    );
   }, [settings]);
+
+  const handleResolveMapsUrl = async (targetUrl?: string) => {
+    const raw = (targetUrl ?? form.mapsUrl ?? '').trim();
+    if (!raw) return;
+
+    const direct = parseCoordsFromGoogleMapsInput(raw);
+    if (direct) {
+      setForm((prev) => ({
+        ...prev,
+        venueLat: direct.lat,
+        venueLng: direct.lng,
+        venuePlaceId: undefined,
+      }));
+      setCoordsInput(`${direct.lat.toFixed(6)}, ${direct.lng.toFixed(6)}`);
+      setMapsResolveStatus({
+        type: 'success',
+        text: `Titik koordinat berhasil dibaca (${direct.lat.toFixed(5)}, ${direct.lng.toFixed(5)}).`,
+      });
+      return;
+    }
+
+    setResolvingMapsUrl(true);
+    setMapsResolveStatus(null);
+    try {
+      const resolved = await resolveGoogleMapsUrlCoords(raw);
+      if (resolved) {
+        setForm((prev) => ({
+          ...prev,
+          venueLat: resolved.lat,
+          venueLng: resolved.lng,
+          venuePlaceId: undefined,
+        }));
+        setCoordsInput(`${resolved.lat.toFixed(6)}, ${resolved.lng.toFixed(6)}`);
+        setMapsResolveStatus({
+          type: 'success',
+          text: `Titik pin berhasil diekstrak dari link (${resolved.lat.toFixed(5)}, ${resolved.lng.toFixed(5)}).`,
+        });
+      } else {
+        setMapsResolveStatus({
+          type: 'info',
+          text: 'Link Google Maps akan dibuka langsung oleh tamu. Untuk menampilkan titik pin di Peta Interaktif, salin koordinat (Lat, Lng) dari Google Maps ke kolom Koordinat.',
+        });
+      }
+    } catch {
+      setMapsResolveStatus({
+        type: 'error',
+        text: 'Gagal membaca koordinat otomatis dari link. Anda tetap bisa menempel koordinat Lat, Lng secara manual.',
+      });
+    } finally {
+      setResolvingMapsUrl(false);
+    }
+  };
+
+  const handleMapsUrlChange = (nextUrl: string) => {
+    const direct = parseCoordsFromGoogleMapsInput(nextUrl);
+    if (direct) {
+      setForm((prev) => ({
+        ...prev,
+        mapsUrl: nextUrl,
+        venueLat: direct.lat,
+        venueLng: direct.lng,
+        venuePlaceId: undefined,
+      }));
+      setCoordsInput(`${direct.lat.toFixed(6)}, ${direct.lng.toFixed(6)}`);
+      setMapsResolveStatus({
+        type: 'success',
+        text: `Titik pin terbaca otomatis (${direct.lat.toFixed(5)}, ${direct.lng.toFixed(5)}).`,
+      });
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      mapsUrl: nextUrl,
+      venueLat: undefined,
+      venueLng: undefined,
+      venuePlaceId: undefined,
+    }));
+    setCoordsInput('');
+    setMapsResolveStatus(null);
+  };
+
+  const handleCoordsInputChange = (rawValue: string) => {
+    setCoordsInput(rawValue);
+    if (!rawValue.trim()) {
+      setForm((prev) => ({
+        ...prev,
+        venueLat: undefined,
+        venueLng: undefined,
+        venuePlaceId: undefined,
+      }));
+      setMapsResolveStatus(null);
+      return;
+    }
+    const parsed = parseCoordsFromGoogleMapsInput(rawValue);
+    if (parsed) {
+      setForm((prev) => {
+        const isDefaultOrEmptyUrl =
+          !prev.mapsUrl?.trim() ||
+          prev.mapsUrl.trim() === 'https://maps.google.com/?q=Dago+Pakar+Bandung';
+        return {
+          ...prev,
+          venueLat: parsed.lat,
+          venueLng: parsed.lng,
+          venuePlaceId: undefined,
+          mapsUrl: isDefaultOrEmptyUrl
+            ? `https://www.google.com/maps/search/?api=1&query=${parsed.lat},${parsed.lng}`
+            : prev.mapsUrl,
+        };
+      });
+      setMapsResolveStatus({
+        type: 'success',
+        text: `Koordinat valid terpasang (${parsed.lat.toFixed(5)}, ${parsed.lng.toFixed(5)}).`,
+      });
+    }
+  };
 
   const updateTypographySlot = (
     key: keyof TypographySettings,
@@ -495,10 +642,39 @@ export function AdminSettingsPanel({
               venueLng: place.lng,
               venuePlaceId: place.placeId,
             }));
+            setCoordsInput(`${place.lat.toFixed(6)}, ${place.lng.toFixed(6)}`);
+            setMapsResolveStatus({
+              type: 'success',
+              text: `Lokasi dipilih dari Google Places (${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}).`,
+            });
+          }}
+          onPickCoords={({ lat, lng }) => {
+            setForm((prev) => ({
+              ...prev,
+              venueLat: lat,
+              venueLng: lng,
+              venuePlaceId: undefined,
+              mapsUrl: `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`,
+            }));
+            setCoordsInput(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            setMapsResolveStatus({
+              type: 'success',
+              text: `Pin peta digeser ke (${lat.toFixed(5)}, ${lng.toFixed(5)}). Jangan lupa klik Simpan Semua Pengaturan.`,
+            });
+          }}
+          onClearPin={() => {
+            setForm((prev) => ({
+              ...prev,
+              venueLat: undefined,
+              venueLng: undefined,
+              venuePlaceId: undefined,
+            }));
+            setCoordsInput('');
+            setMapsResolveStatus(null);
           }}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-[#3A2D32] mb-1.5">
               Nama Gedung / Rumah Acara
@@ -507,6 +683,7 @@ export function AdminSettingsPanel({
               type="text"
               value={form.akadVenue}
               onChange={(e) => setForm({ ...form, akadVenue: e.target.value })}
+              placeholder="Contoh: Rumah Mempelai Wanita / Gedung Serbaguna"
               className="w-full rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-sm"
             />
           </div>
@@ -521,18 +698,69 @@ export function AdminSettingsPanel({
               className="w-full rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-xs"
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-medium text-[#3A2D32] mb-1.5">
-              Link Google Maps
+              Link Google Maps (Dari Tombol Bagikan / URL Browser)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={form.mapsUrl}
+                onChange={(e) => handleMapsUrlChange(e.target.value)}
+                onBlur={(e) => {
+                  if (isShortGoogleMapsUrl(e.target.value)) {
+                    void handleResolveMapsUrl(e.target.value);
+                  }
+                }}
+                placeholder="https://maps.app.goo.gl/... atau https://www.google.com/maps/..."
+                className="flex-1 min-w-0 rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => void handleResolveMapsUrl()}
+                disabled={resolvingMapsUrl || !form.mapsUrl.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#DFD6D1] bg-white px-3 py-2 text-xs font-medium text-[#3A2D32] hover:bg-[#FBF8F6] disabled:opacity-50 cursor-pointer shrink-0"
+              >
+                {resolvingMapsUrl ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C47D8E]" />
+                ) : (
+                  <Crosshair className="w-3.5 h-3.5 text-[#C47D8E]" />
+                )}
+                <span>Ambil Pin</span>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[#3A2D32] mb-1.5">
+              Koordinat Pin Akurat (Latitude, Longitude)
             </label>
             <input
-              type="url"
-              value={form.mapsUrl}
-              onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })}
-              className="w-full rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-xs"
+              type="text"
+              value={coordsInput}
+              onChange={(e) => handleCoordsInputChange(e.target.value)}
+              placeholder="Contoh: -7.234567, 108.345678 (tekan & tahan rumah di Google Maps)"
+              className="w-full rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-xs tabular-nums"
             />
           </div>
         </div>
+
+        {mapsResolveStatus && (
+          <p
+            className={`text-[11px] leading-relaxed ${
+              mapsResolveStatus.type === 'success'
+                ? 'text-[#3B5B47]'
+                : mapsResolveStatus.type === 'error'
+                  ? 'text-[#8F3A4E]'
+                  : 'text-[#6E5D63]'
+            }`}
+          >
+            {mapsResolveStatus.text}
+          </p>
+        )}
       </div>
 
       {/* Scene 5 & 6: Gift & Sky Closing Thanks */}
