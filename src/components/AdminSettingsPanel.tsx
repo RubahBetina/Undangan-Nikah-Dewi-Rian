@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
+  CheckCircle2,
   Crosshair,
+  ExternalLink,
   Loader2,
+  MapPin,
   Minus,
   Music,
   Plus,
@@ -12,6 +15,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  buildGoogleMapsDirectionsUrl,
   isShortGoogleMapsUrl,
   parseCoordsFromGoogleMapsInput,
   resolveGoogleMapsUrlCoords,
@@ -31,7 +35,6 @@ import type {
   TypographySettings,
   WeddingSettings,
 } from '../types/wedding.ts';
-import { VenuePlacePicker, type SelectedPlaceResult } from './VenuePlacePicker.tsx';
 
 interface AdminSettingsPanelProps {
   settings: WeddingSettings;
@@ -123,7 +126,7 @@ export function AdminSettingsPanel({
       } else {
         setMapsResolveStatus({
           type: 'info',
-          text: 'Link Google Maps akan dibuka langsung oleh tamu. Untuk menampilkan titik pin di Peta Interaktif, salin koordinat (Lat, Lng) dari Google Maps ke kolom Koordinat.',
+          text: 'Link Google Maps akan dibuka langsung oleh tamu. Jika ingin mengunci titik koordinat rumah secara pasti, salin angka (Lat, Lng) dari Google Maps ke kolom Koordinat.',
         });
       }
     } catch {
@@ -628,51 +631,65 @@ export function AdminSettingsPanel({
           </div>
         </div>
 
-        <VenuePlacePicker
-          settings={form}
-          onSelectPlace={(place: SelectedPlaceResult) => {
-            setForm((prev) => ({
-              ...prev,
-              akadVenue: place.venueName,
-              akadAddress: place.address,
-              resepsiVenue: place.venueName,
-              resepsiAddress: place.address,
-              mapsUrl: place.mapsUrl,
-              venueLat: place.lat,
-              venueLng: place.lng,
-              venuePlaceId: place.placeId,
-            }));
-            setCoordsInput(`${place.lat.toFixed(6)}, ${place.lng.toFixed(6)}`);
-            setMapsResolveStatus({
-              type: 'success',
-              text: `Lokasi dipilih dari Google Places (${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}).`,
-            });
-          }}
-          onPickCoords={({ lat, lng }) => {
-            setForm((prev) => ({
-              ...prev,
-              venueLat: lat,
-              venueLng: lng,
-              venuePlaceId: undefined,
-              mapsUrl: `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`,
-            }));
-            setCoordsInput(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-            setMapsResolveStatus({
-              type: 'success',
-              text: `Pin peta digeser ke (${lat.toFixed(5)}, ${lng.toFixed(5)}). Jangan lupa klik Simpan Semua Pengaturan.`,
-            });
-          }}
-          onClearPin={() => {
-            setForm((prev) => ({
-              ...prev,
-              venueLat: undefined,
-              venueLng: undefined,
-              venuePlaceId: undefined,
-            }));
-            setCoordsInput('');
-            setMapsResolveStatus(null);
-          }}
-        />
+        <div className="rounded-xl border border-[#EFE8E4] bg-[#FBF8F6] p-4 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-[#C47D8E] shrink-0" />
+              <p className="text-xs font-semibold text-[#3A2D32]">
+                Lokasi Google Maps (Gratis, Tanpa API Key / Billing)
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {typeof form.venueLat === 'number' && typeof form.venueLng === 'number' && (
+                <>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#3B5B47]">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="tabular-nums">
+                      Pin Terpasang ({form.venueLat.toFixed(5)}, {form.venueLng.toFixed(5)})
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((prev) => ({
+                        ...prev,
+                        venueLat: undefined,
+                        venueLng: undefined,
+                        venuePlaceId: undefined,
+                      }));
+                      setCoordsInput('');
+                      setMapsResolveStatus(null);
+                    }}
+                    title="Hapus koordinat pin tersimpan"
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#DFD6D1] bg-white px-2 py-0.5 text-[10px] font-medium text-[#6E5D63] hover:text-[#8F3A4E] cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset Pin</span>
+                  </button>
+                </>
+              )}
+              <a
+                href={buildGoogleMapsDirectionsUrl({
+                  venueName: form.akadVenue,
+                  address: form.akadAddress,
+                  lat: form.venueLat,
+                  lng: form.venueLng,
+                  placeId: form.venuePlaceId,
+                  fallbackUrl: form.mapsUrl,
+                })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-lg border border-[#DFD6D1] bg-white px-2.5 py-1 text-[11px] font-medium text-[#C47D8E] hover:bg-[#FBF1F3]"
+              >
+                <span>Tes Buka Link</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+          <p className="text-[11px] text-[#6E5D63] leading-relaxed">
+            Untuk acara di rumah pribadi: buka aplikasi Google Maps di HP, tekan &amp; tahan tepat di titik rumah lalu pilih <strong>Bagikan → Salin link</strong> (lalu klik <strong>Ambil Pin</strong>), atau langsung salin angka koordinat <code className="px-1 py-0.5 rounded bg-white text-[#3A2D32]">Lat, Lng</code> ke kolom di bawah.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

@@ -1,5 +1,3 @@
-export const GMP_ATTRIBUTION_ID = 'gmp_mcp_codeassist_v1_aistudio';
-
 export interface ParsedCoordinates {
   lat: number;
   lng: number;
@@ -61,7 +59,7 @@ export function parseCoordsFromGoogleMapsInput(rawInput: string): ParsedCoordina
       if (isValidLatLng(lat, lng)) return { lat, lng };
     }
 
-    // 4. /search/lat,lng or /dir//lat,lng path pattern
+    // 4. /search/lat,lng or /place/lat,lng path pattern
     const pathCoordMatch = text.match(
       /\/(?:search|place)\/(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/i,
     );
@@ -136,40 +134,6 @@ export async function resolveGoogleMapsUrlCoords(
   return null;
 }
 
-export function getGoogleMapsApiKey(): string {
-  return (import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '').trim();
-}
-
-export function reportGmpQuotaIfExceeded(err: unknown): boolean {
-  if (!err) return false;
-  const obj = err as {
-    status?: unknown;
-    code?: unknown;
-    message?: unknown;
-    error?: { status?: unknown; code?: unknown; message?: unknown };
-  };
-  const statusStr = String(obj?.status ?? obj?.error?.status ?? '');
-  const codeVal = obj?.code ?? obj?.error?.code;
-  const msg =
-    err instanceof Error
-      ? err.message
-      : String(obj?.message ?? obj?.error?.message ?? err);
-
-  const isQuotaError =
-    statusStr === 'OVER_QUERY_LIMIT' ||
-    statusStr === 'RESOURCE_EXHAUSTED' ||
-    codeVal === 429 ||
-    /OVER_QUERY_LIMIT|RESOURCE_EXHAUSTED|OverQuotaMapError|QuotaExceededError|quota exceeded|rateLimitExceeded/i.test(
-      msg,
-    );
-
-  if (isQuotaError) {
-    window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-    return true;
-  }
-  return false;
-}
-
 export function buildGoogleMapsDirectionsUrl(options: {
   venueName?: string;
   address?: string;
@@ -186,7 +150,7 @@ export function buildGoogleMapsDirectionsUrl(options: {
     return placeId ? `${base}&query_place_id=${encodeURIComponent(placeId)}` : base;
   }
 
-  // 2. Explicit Google Maps URL pasted by admin (MUST take priority over text guessing!)
+  // 2. Explicit Google Maps URL pasted by admin (takes priority over text search)
   const trimmedFallback = (fallbackUrl || '').trim();
   if (trimmedFallback && /^https?:\/\//i.test(trimmedFallback)) {
     const parsedFromUrl = parseCoordsFromGoogleMapsInput(trimmedFallback);

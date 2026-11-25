@@ -39,7 +39,6 @@ git push -u origin main
 2. Masuk ke **Project Settings → Environment Variables**, lalu tambahkan:
    - `VITE_SUPABASE_URL` = URL proyek Supabase Anda
    - `VITE_SUPABASE_ANON_KEY` = Anon Key Supabase Anda
-   - `VITE_GOOGLE_MAPS_API_KEY` = API Key Google Maps Platform *(opsional, untuk peta interaktif & autocomplete lokasi)*
 3. Build Command: `vite build` · Output Directory: `dist` *(sudah otomatis terbaca dari `vercel.json`)*.
 4. Klik **Deploy** dan buka `/admin` untuk mulai mengunggah elemen floral dan menata undangan Anda.
 
@@ -68,47 +67,25 @@ Masuk ke panel **DNS Management / DNS Zone** di tempat Anda membeli domain, lalu
 ### Langkah 3: Tunggu Verifikasi & SSL Otomatis
 Tunggu sekitar **5–30 menit** (maksimal 24 jam untuk propagasi DNS). Di dashboard Vercel, status domain akan otomatis berubah menjadi **Valid Configuration** dan sertifikat HTTPS (SSL) langsung aktif tanpa biaya tambahan.
 
-### Langkah 4: Update Domain di Supabase & Google Maps
-Agar fitur login Admin dan peta Google Maps tetap berjalan normal di domain baru:
-1. **Supabase Dashboard** → *Authentication → URL Configuration*:
-   - Ubah **Site URL** ke `https://domain-baru-anda.com`
-   - Tambahkan `https://domain-baru-anda.com/**` ke daftar **Redirect URLs**.
-2. **Google Cloud Console** *(jika memakai Google Maps & membatasi Website/HTTP Referrer)*:
-   - Tambahkan `https://domain-baru-anda.com/*` ke daftar **Website restrictions** pada API Key Google Maps Anda.
+### Langkah 4: Update Domain di Supabase
+Agar fitur login Admin tetap berjalan normal di domain baru:
+1. Buka **Supabase Dashboard → Authentication → URL Configuration**.
+2. Ubah **Site URL** ke `https://domain-baru-anda.com`.
+3. Tambahkan `https://domain-baru-anda.com/**` ke daftar **Redirect URLs**.
 
 ---
 
-## Panduan Google Maps Akurat & Peta Interaktif
+## Panduan Google Maps Akurat (100% Gratis, Tanpa Google Cloud / API Key)
 
-Jika acara diadakan di **rumah pribadi** (misalnya *"Rumah Mempelai Wanita"*) yang tidak terdaftar sebagai tempat umum di Google Maps, **jangan hanya mengisi nama & alamat teks** — gunakan salah satu dari 3 cara berikut di `/admin` (**Pengaturan → Adegan 3 & 4**):
+Tombol **Buka Google Maps** di halaman tamu bekerja **100% gratis** tanpa perlu Google Cloud Console, API Key, maupun kartu kredit/billing.
 
-### 1. Agar Tombol "Buka Google Maps" & Pin Tepat ke Lokasi Rumah
+Jika acara diadakan di **rumah pribadi** (misalnya *"Rumah Mempelai Wanita"*) yang tidak terdaftar sebagai tempat umum di Google Maps, gunakan salah satu dari 2 cara berikut di `/admin` (**Pengaturan → Adegan 3 & 4**):
+
 - **Cara A — Tempel Link Google Maps (`maps.app.goo.gl` / URL Browser)**:
   1. Buka lokasi rumah di aplikasi Google Maps → pilih **Bagikan (Share)** → **Salin link**.
   2. Tempel ke kolom **Link Google Maps** di panel Admin, lalu klik **Ambil Pin** (sistem otomatis mengekstrak koordinat akurat dari tautan).
+  3. Klik **Tes Buka Link** untuk memastikan titik tujuan di Google Maps sudah tepat.
 - **Cara B — Tempel Koordinat Langsung (Paling Akurat untuk Rumah)**:
   1. Buka Google Maps di HP, **tekan dan tahan tepat di titik rumah acara** hingga muncul pin merah.
   2. Salin angka koordinat yang muncul (contoh: `-7.234567, 108.345678`).
-  3. Tempel ke kolom **Koordinat Pin Akurat (Latitude, Longitude)** di panel Admin, lalu klik **Simpan Semua Pengaturan**.
-- **Cara C — Cari atau Geser Pin di Peta Admin** *(jika Peta Interaktif aktif)*:
-  - Cari nama gedung via kolom pencarian Google Places, **atau** klik area peta / geser pin pink langsung ke titik rumah pada pratinjau peta di Admin.
-
-### 2. Mengaktifkan Peta Interaktif (`Peta Interaktif`) di Vercel & Lokal
-Tanpa `VITE_GOOGLE_MAPS_API_KEY`, tamu tetap bisa membuka rute lewat tombol **Buka Google Maps**, tetapi pratinjau **Peta Interaktif** di dalam website memerlukan Google Maps API Key:
-
-1. Buka [Google Cloud Console](https://console.cloud.google.com/) dan pilih/buat proyek Google Cloud Anda (pastikan *Billing* aktif; Google menyediakan kuota gratis bulanan).
-2. Buka **APIs & Services → Library**, lalu aktifkan dua API berikut:
-   - **Maps JavaScript API**
-   - **Places API (New)**
-3. Buka **APIs & Services → Credentials → Create Credentials → API Key**.
-4. Klik API Key yang baru dibuat, lalu atur keamanan:
-   - **Application restrictions**: pilih **Websites (HTTP referrers)** dan masukkan domain Anda:
-     - `https://<nama-proyek>.vercel.app/*`
-     - `https://<domain-sendiri>.com/*`
-     - `http://localhost:3000/*` *(untuk pengujian lokal)*
-   - **API restrictions**: pilih **Restrict key** dan centang **Maps JavaScript API** serta **Places API (New)**.
-5. Tambahkan variabel environment berikut di **Vercel → Project Settings → Environment Variables** *(dan di file `.env` untuk lokal)*:
-   - Name: `VITE_GOOGLE_MAPS_API_KEY`
-   - Value: `<API_KEY_GOOGLE_MAPS_ANDA>`
-6. Lakukan **Redeploy** di Vercel *(Deployments → titik tiga → Redeploy)* karena variabel `VITE_*` dibaca saat proses `vite build`.
-
+  3. Tempel ke kolom **Koordinat Pin Akurat (Latitude, Longitude)** di panel Admin, lalu klik **Simpan Pengaturan**.

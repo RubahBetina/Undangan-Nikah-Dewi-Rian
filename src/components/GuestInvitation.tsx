@@ -14,7 +14,6 @@ import {
 import { FloralGateCurtain } from './FloralGateCurtain.tsx';
 import { MentalCanvas3D } from './MentalCanvas3D.tsx';
 import { SmokeBackdrop } from './SmokeBackdrop.tsx';
-import { WeddingVenueMapModal } from './WeddingVenueMap.tsx';
 import { buildGoogleMapsDirectionsUrl } from '../lib/googleMaps.ts';
 import {
   DEFAULT_TYPOGRAPHY,
@@ -73,7 +72,6 @@ export function GuestInvitation({
   const [musicOn, setMusicOn] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [rsvpModalOpen, setRsvpModalOpen] = useState(false);
-  const [mapModalOpen, setMapModalOpen] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(() =>
     formatCountdown(settings.weddingDateIso),
@@ -508,14 +506,6 @@ export function GuestInvitation({
                   {settings.akadAddress}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 pointer-events-auto">
-                  <button
-                    type="button"
-                    onClick={() => setMapModalOpen(true)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-[#C47D8E] px-3.5 py-1.5 text-[11px] font-medium text-white hover:bg-[#B46B7D] cursor-pointer whitespace-nowrap"
-                  >
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span>Peta Interaktif</span>
-                  </button>
                   <a
                     href={buildGoogleMapsDirectionsUrl({
                       venueName: settings.akadVenue,
@@ -527,8 +517,9 @@ export function GuestInvitation({
                     })}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-[#C47D8E] hover:underline whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#C47D8E] px-4 py-1.5 text-[11px] font-medium text-white hover:bg-[#B46B7D] whitespace-nowrap"
                   >
+                    <MapPin className="w-3.5 h-3.5" />
                     <span>Buka Google Maps</span>
                   </a>
                   <span className="text-[#D6CBC6]" aria-hidden="true">
@@ -799,13 +790,6 @@ export function GuestInvitation({
           </div>
         </div>
       )}
-
-      {/* Interactive Google Maps Venue Modal */}
-      <WeddingVenueMapModal
-        open={mapModalOpen}
-        onClose={() => setMapModalOpen(false)}
-        settings={settings}
-      />
 
       {/* Full Mental Canvas Scroll Runway (680vh — zero solid webpage block at bottom!) */}
       <div className="h-[680vh] pointer-events-none" aria-hidden="true" />
