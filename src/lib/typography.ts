@@ -196,24 +196,25 @@ export function getFontCssFamily(fontId: InvitationFontId | undefined): string {
 }
 
 /**
- * Produces CSS fontFamily + smooth responsive fontSize anchored to `slot.size` px on mobile,
- * scaling gently on desktop up to `desktopMultiplier`x.
+ * Produces CSS fontFamily + smooth responsive fontSize anchored to `slot.size` px on mobile (~390px),
+ * scaling proportionally on desktop up to `desktopMultiplier`x so text matches the full-viewport 3D artwork.
  */
 export function getSlotTextStyle(
   slot: TypographySlotConfig | undefined,
   fallback: TypographySlotConfig,
   scaleFactor = 1,
-  desktopMultiplier = 1.32,
+  desktopMultiplier = 1.78,
 ): CSSProperties {
   const active = slot || fallback;
   const basePx = Math.max(8, Math.round(active.size * scaleFactor));
   const maxPx = Math.max(basePx, Math.round(basePx * desktopMultiplier));
-  const fluidBase = Math.round(basePx * 0.85 * 10) / 10;
+  const fluidBase = Math.round(basePx * 0.76 * 10) / 10;
+  const fluidVw = Math.round(basePx * 0.072 * 100) / 100;
   return {
     fontFamily: getFontCssFamily(active.font),
     fontSize:
       maxPx === basePx
         ? `${basePx}px`
-        : `clamp(${basePx}px, calc(${fluidBase}px + 0.9vw), ${maxPx}px)`,
+        : `clamp(${basePx}px, calc(${fluidBase}px + ${fluidVw}vw), ${maxPx}px)`,
   };
 }

@@ -72,7 +72,7 @@ export function FloralGateCurtain({
         <button
           type="button"
           onClick={onAction}
-          className="w-auto max-w-[92vw] sm:max-w-md rounded-3xl bg-[#FBF8F6]/94 border border-[#DFD6D1] px-7 py-4 text-[#3A2D32] shadow-[0_12px_30px_-10px_rgba(58,45,50,0.28)] hover:bg-white transition-transform active:scale-[0.98] cursor-pointer text-center"
+          className="w-auto max-w-[92vw] sm:max-w-lg md:max-w-2xl rounded-3xl bg-[#FBF8F6]/94 border border-[#DFD6D1] px-7 py-4 md:px-10 md:py-6 text-[#3A2D32] shadow-[0_12px_30px_-10px_rgba(58,45,50,0.28)] hover:bg-white transition-transform active:scale-[0.98] cursor-pointer text-center"
         >
           {mode === 'opening' ? (
             <div className="flex flex-col items-center gap-1.5">
