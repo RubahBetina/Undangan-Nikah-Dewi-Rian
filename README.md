@@ -77,15 +77,13 @@ Agar fitur login Admin tetap berjalan normal di domain baru:
 
 ## Panduan Google Maps Akurat (100% Gratis, Tanpa Google Cloud / API Key)
 
-Tombol **Buka Google Maps** di halaman tamu bekerja **100% gratis** tanpa perlu Google Cloud Console, API Key, maupun kartu kredit/billing.
+Tombol **Buka Google Maps** di halaman tamu bekerja **100% gratis** tanpa perlu Google Cloud Console, API Key, maupun kartu kredit/billing:
 
-Jika acara diadakan di **rumah pribadi** (misalnya *"Rumah Mempelai Wanita"*) yang tidak terdaftar sebagai tempat umum di Google Maps, gunakan salah satu dari 2 cara berikut di `/admin` (**Pengaturan → Adegan 3 & 4**):
-
-- **Cara A — Tempel Link Google Maps (`maps.app.goo.gl` / URL Browser)**:
-  1. Buka lokasi rumah di aplikasi Google Maps → pilih **Bagikan (Share)** → **Salin link**.
-  2. Tempel ke kolom **Link Google Maps** di panel Admin, lalu klik **Ambil Pin** (sistem otomatis mengekstrak koordinat akurat dari tautan).
-  3. Klik **Tes Buka Link** untuk memastikan titik tujuan di Google Maps sudah tepat.
-- **Cara B — Tempel Koordinat Langsung (Paling Akurat untuk Rumah)**:
+- **Cara A — Bagikan Lokasi Tempat dari Aplikasi Google Maps (Direkomendasikan)**:
+  1. Cari lokasi tempat acara di aplikasi Google Maps → pilih **Bagikan (Share)** → **Salin link**.
+  2. Tempel ke kolom **Link Google Maps** di `/admin` (**Pengaturan → Adegan 3 & 4**), lalu klik **Simpan Pengaturan**.
+  3. Saat tamu menekan **Buka Google Maps**, link tersebut dibuka persis apa adanya di Google Maps HP tamu sehingga nama tempat, foto, dan tombol **Rute** tampil utuh.
+- **Cara B — Tempel Koordinat Langsung (Jika Rumah Belum Ada di Google Maps)**:
   1. Buka Google Maps di HP, **tekan dan tahan tepat di titik rumah acara** hingga muncul pin merah.
-  2. Salin angka koordinat yang muncul (contoh: `-7.234567, 108.345678`).
+  2. Salin angka koordinat yang muncul (contoh: `-7.312870, 108.352168`).
   3. Tempel ke kolom **Koordinat Pin Akurat (Latitude, Longitude)** di panel Admin, lalu klik **Simpan Pengaturan**.

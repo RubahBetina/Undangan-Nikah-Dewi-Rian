@@ -3,6 +3,8 @@ export interface ParsedCoordinates {
   lng: number;
 }
 
+const DEFAULT_SEED_MAPS_URL = 'https://maps.google.com/?q=Dago+Pakar+Bandung';
+
 function isValidLatLng(lat: number, lng: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
@@ -15,6 +17,16 @@ function safeDecode(text: string): string {
     return decodeURIComponent(text);
   } catch {
     return text;
+  }
+}
+
+function isRawCoordinateSearchUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    const q = parsed.searchParams.get('query') || parsed.searchParams.get('q') || '';
+    return /^-?\d{1,2}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(q.trim());
+  } catch {
+    return false;
   }
 }
 
@@ -134,6 +146,11 @@ export async function resolveGoogleMapsUrlCoords(
   return null;
 }
 
+/**
+ * Returns the primary "Buka Google Maps" URL.
+ * Preserves any real Google Maps place/share URL pasted by the admin (e.g. maps.app.goo.gl or /maps/place/...)
+ * so the shared place name, photos, and landmarks remain visible instead of stripping to bare coordinates.
+ */
 export function buildGoogleMapsDirectionsUrl(options: {
   venueName?: string;
   address?: string;
@@ -144,23 +161,29 @@ export function buildGoogleMapsDirectionsUrl(options: {
 }): string {
   const { venueName, address, lat, lng, placeId, fallbackUrl } = options;
 
-  // 1. Explicit pinned coordinates (most accurate)
+  // 1. Preserve explicit Google Maps place/share URL (maps.app.goo.gl, /maps/place/..., etc.)
+  const trimmedFallback = (fallbackUrl || '').trim();
+  if (
+    trimmedFallback &&
+    /^https?:\/\//i.test(trimmedFallback) &&
+    trimmedFallback !== DEFAULT_SEED_MAPS_URL &&
+    !isRawCoordinateSearchUrl(trimmedFallback)
+  ) {
+    return trimmedFallback;
+  }
+
+  // 2. Explicit coordinates when no named place URL was shared
   if (typeof lat === 'number' && typeof lng === 'number' && isValidLatLng(lat, lng)) {
     const base = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
     return placeId ? `${base}&query_place_id=${encodeURIComponent(placeId)}` : base;
   }
 
-  // 2. Explicit Google Maps URL pasted by admin (takes priority over text search)
-  const trimmedFallback = (fallbackUrl || '').trim();
+  // 3. Fallback custom URL (e.g. raw coordinate query URL)
   if (trimmedFallback && /^https?:\/\//i.test(trimmedFallback)) {
-    const parsedFromUrl = parseCoordsFromGoogleMapsInput(trimmedFallback);
-    if (parsedFromUrl) {
-      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${parsedFromUrl.lat},${parsedFromUrl.lng}`)}`;
-    }
     return trimmedFallback;
   }
 
-  // 3. Fallback text search only if neither coordinates nor mapsUrl was provided
+  // 4. Text search fallback only when neither URL nor coords were provided
   const query = [venueName, address].filter(Boolean).join(', ').trim();
   if (query) {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;

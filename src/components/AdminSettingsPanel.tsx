@@ -255,8 +255,28 @@ export function AdminSettingsPanel({
     setErrorMsg(null);
     const brideFirst = form.brideFullName.trim().split(/\s+/)[0] || 'Mempelai Wanita';
     const groomFirst = form.groomFullName.trim().split(/\s+/)[0] || 'Mempelai Pria';
+
+    let nextVenueLat = form.venueLat;
+    let nextVenueLng = form.venueLng;
+    if (
+      (typeof nextVenueLat !== 'number' || typeof nextVenueLng !== 'number') &&
+      isShortGoogleMapsUrl(form.mapsUrl)
+    ) {
+      try {
+        const resolved = await resolveGoogleMapsUrlCoords(form.mapsUrl);
+        if (resolved) {
+          nextVenueLat = resolved.lat;
+          nextVenueLng = resolved.lng;
+        }
+      } catch {
+        // Non-blocking: mapsUrl itself still works
+      }
+    }
+
     const payload: WeddingSettings = {
       ...form,
+      venueLat: nextVenueLat,
+      venueLng: nextVenueLng,
       coupleHeadline: `${groomFirst} & ${brideFirst}`,
       giftBankName: form.giftAccounts?.[0]?.bankName ?? form.giftBankName,
       giftAccountNumber: form.giftAccounts?.[0]?.accountNumber ?? form.giftAccountNumber,
@@ -687,7 +707,7 @@ export function AdminSettingsPanel({
             </div>
           </div>
           <p className="text-[11px] text-[#6E5D63] leading-relaxed">
-            Untuk acara di rumah pribadi: buka aplikasi Google Maps di HP, tekan &amp; tahan tepat di titik rumah lalu pilih <strong>Bagikan → Salin link</strong> (lalu klik <strong>Ambil Pin</strong>), atau langsung salin angka koordinat <code className="px-1 py-0.5 rounded bg-white text-[#3A2D32]">Lat, Lng</code> ke kolom di bawah.
+            <strong>Link Google Maps</strong> yang Anda tempel akan dibuka persis apa adanya saat tamu menekan <em>Buka Google Maps</em> sehingga nama tempat &amp; detail lokasi dari aplikasi Google Maps tetap muncul. Kolom koordinat hanya dipakai jika rumah acara tidak punya nama tempat dan Anda hanya menempel titik koordinat.
           </p>
         </div>
 
