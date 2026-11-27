@@ -21,6 +21,30 @@ import type {
   WishEntry,
 } from '../types/wedding.ts';
 
+const BUNDLE_CACHE_KEY = 'atelier_fleur_bundle_cache_v1';
+
+function readCachedBundle(): InvitationBundle | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(BUNDLE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as InvitationBundle;
+    if (!parsed || !parsed.settings || !Array.isArray(parsed.elements)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedBundle(bundle: InvitationBundle): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(BUNDLE_CACHE_KEY, JSON.stringify(bundle));
+  } catch {
+    // Ignore quota errors
+  }
+}
+
 async function apiJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     credentials: 'include',
@@ -219,6 +243,10 @@ function mapSettingsFromDb(row: Record<string, unknown>): WeddingSettings {
         : DEFAULT_SETTINGS.musicEnabled,
     musicUrl: String(extra.musicUrl ?? DEFAULT_SETTINGS.musicUrl),
     musicTitle: String(extra.musicTitle ?? DEFAULT_SETTINGS.musicTitle),
+    registrationLocked:
+      typeof extra.registrationLocked === 'boolean'
+        ? extra.registrationLocked
+        : true,
     typography: mergeTypography(extra.typography),
     storyMilestones: Array.isArray(row.story_milestones)
       ? (row.story_milestones as WeddingSettings['storyMilestones'])
@@ -275,6 +303,7 @@ function mapSettingsToDb(s: WeddingSettings): Record<string, unknown> {
       venueLat: typeof s.venueLat === 'number' ? s.venueLat : null,
       venueLng: typeof s.venueLng === 'number' ? s.venueLng : null,
       venuePlaceId: s.venuePlaceId || null,
+      registrationLocked: s.registrationLocked !== false,
       wishesSeeded: true,
     },
   };
@@ -367,6 +396,10 @@ export const dataService = {
     return isSupabaseConfigured ? 'supabase' : 'express';
   },
 
+  getCachedInvitationBundle(): InvitationBundle | null {
+    return readCachedBundle();
+  },
+
   // =========================================================================
   // AUTHENTICATION
   // =========================================================================
@@ -433,6 +466,20 @@ export const dataService = {
     password: string,
   ): Promise<{ user: AdminUser; needsEmailConfirmation: boolean }> {
     if (supabase) {
+      const { data: settingsRow } = await supabase
+        .from('wedding_settings')
+        .select('scene_config')
+        .eq('id', 1)
+        .maybeSingle();
+      const extra =
+        (settingsRow?.scene_config as Record<string, unknown> | null) || {};
+      const isLocked =
+        typeof extra.registrationLocked === 'boolean'
+          ? extra.registrationLocked
+          : true;
+      if (isLocked) {
+        throw new Error('Pendaftaran akun admin baru sedang dikunci.');
+      }
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -539,9 +586,13 @@ export const dataService = {
             ? []
             : DEFAULT_WISHES;
 
-      return { settings, elements, cameraStops, wishes };
+      const bundle = { settings, elements, cameraStops, wishes };
+      writeCachedBundle(bundle);
+      return bundle;
     }
-    return apiJson<InvitationBundle>('/api/invitation');
+    const bundle = await apiJson<InvitationBundle>('/api/invitation');
+    writeCachedBundle(bundle);
+    return bundle;
   },
 
   async submitRsvp(payload: {
@@ -661,12 +712,21 @@ export const dataService = {
       if (error || !data) {
         throw new Error(error?.message || 'Gagal menyimpan pengaturan undangan.');
       }
-      return mapSettingsFromDb(data);
+      const mapped = mapSettingsFromDb(data);
+      const cached = readCachedBundle();
+      if (cached) {
+        writeCachedBundle({ ...cached, settings: mapped });
+      }
+      return mapped;
     }
     const res = await adminApiJson<{ settings: WeddingSettings }>('/api/admin/settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
     });
+    const cached = readCachedBundle();
+    if (cached) {
+      writeCachedBundle({ ...cached, settings: res.settings });
+    }
     return res.settings;
   },
 
@@ -913,16 +973,25 @@ export const dataService = {
         }
         if (stErr) throw new Error(stErr.message);
       }
+      const cached = readCachedBundle();
+      if (cached) {
+        writeCachedBundle({ ...cached, elements, cameraStops });
+      }
       return { elements, cameraStops };
     }
 
-    return adminApiJson<{ elements: CanvasElement[]; cameraStops: CameraStop[] }>(
+    const res = await adminApiJson<{ elements: CanvasElement[]; cameraStops: CameraStop[] }>(
       '/api/admin/canvas',
       {
         method: 'PUT',
         body: JSON.stringify({ elements, cameraStops }),
       },
     );
+    const cached = readCachedBundle();
+    if (cached) {
+      writeCachedBundle({ ...cached, elements: res.elements, cameraStops: res.cameraStops });
+    }
+    return res;
   },
 
   async getAdminRsvps(): Promise<{ rsvps: RsvpEntry[]; wishes: WishEntry[] }> {

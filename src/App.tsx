@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
 import { GuestInvitation } from './components/GuestInvitation.tsx';
 import {
@@ -19,13 +19,26 @@ function isAdminRoute(): boolean {
 
 export default function App() {
   const [adminRoute, setAdminRoute] = useState<boolean>(() => isAdminRoute());
-  const [bundle, setBundle] = useState<InvitationBundle>({
-    settings: DEFAULT_SETTINGS,
-    elements: DEFAULT_ELEMENTS,
-    cameraStops: DEFAULT_CAMERA_STOPS,
-    wishes: DEFAULT_WISHES,
-  });
-  const [loaded, setLoaded] = useState(false);
+  const [initialCache] = useState<InvitationBundle | null>(() =>
+    dataService.getCachedInvitationBundle(),
+  );
+  const [bundle, setBundle] = useState<InvitationBundle>(
+    () =>
+      initialCache ?? {
+        settings: DEFAULT_SETTINGS,
+        elements: DEFAULT_ELEMENTS,
+        cameraStops: DEFAULT_CAMERA_STOPS,
+        wishes: DEFAULT_WISHES,
+      },
+  );
+  const [loaded, setLoaded] = useState<boolean>(
+    () => Boolean(initialCache) || !isSupabaseConfigured,
+  );
+
+  const guestNameFromUrl = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('to')?.trim() || '';
+  }, []);
 
   const navigateToAdmin = useCallback(() => {
     window.history.pushState({}, '', '/admin');
@@ -66,7 +79,7 @@ export default function App() {
         }
       })
       .catch(() => {
-        // Keep graceful default floral seed if backend request fails
+        // Keep cached or default seed only if backend request fails
       })
       .finally(() => {
         if (mounted) setLoaded(true);
@@ -84,10 +97,18 @@ export default function App() {
     }));
   };
 
-  if (!loaded && adminRoute) {
+  if (!loaded) {
     return (
-      <div className="min-h-screen bg-[#FBF8F6] flex items-center justify-center text-xs text-[#6E5D63]">
-        Memuat Atelier Fleur...
+      <div className="min-h-screen bg-[#FBF8F6] flex flex-col items-center justify-center px-6 text-center select-none">
+        <div className="w-8 h-8 rounded-full border-2 border-[#E7C6CE] border-t-[#C47D8E] animate-spin mb-4" />
+        {guestNameFromUrl && (
+          <p className="font-display text-lg italic text-[#6E5D63] mb-1">
+            Kepada Yth. {guestNameFromUrl}
+          </p>
+        )}
+        <p className="text-xs tracking-[0.18em] uppercase text-[#8F4A5B] font-medium">
+          Mempersiapkan Undangan...
+        </p>
       </div>
     );
   }

@@ -3,7 +3,7 @@ export interface ParsedCoordinates {
   lng: number;
 }
 
-const DEFAULT_SEED_MAPS_URL = 'https://maps.google.com/?q=Dago+Pakar+Bandung';
+export const DEFAULT_SEED_MAPS_URL = 'https://maps.google.com/?q=Dago+Pakar+Bandung';
 
 function isValidLatLng(lat: number, lng: number): boolean {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
@@ -20,11 +20,31 @@ function safeDecode(text: string): string {
   }
 }
 
-function isRawCoordinateSearchUrl(rawUrl: string): boolean {
+/**
+ * Extracts the first http(s) URL from a pasted Google Maps share text
+ * (for example: "Masjid Al-Ikhlas https://maps.app.goo.gl/abc123").
+ */
+export function extractGoogleMapsUrlFromText(rawInput: string): string | null {
+  const trimmed = (rawInput || '').trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  return match[0].replace(/[),.;]+$/, '');
+}
+
+export function isRawCoordinateMapsUrl(rawUrl: string): boolean {
+  const clean = extractGoogleMapsUrlFromText(rawUrl) || (rawUrl || '').trim();
+  if (!clean) return false;
   try {
-    const parsed = new URL(rawUrl);
+    const parsed = new URL(clean);
     const q = parsed.searchParams.get('query') || parsed.searchParams.get('q') || '';
-    return /^-?\d{1,2}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(q.trim());
+    if (/^-?\d{1,2}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?$/.test(q.trim())) {
+      return true;
+    }
+    if (/^\/maps\/place\/-?\d{1,2}(?:\.\d+)?,-?\d{1,3}(?:\.\d+)?/i.test(parsed.pathname)) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -94,10 +114,10 @@ export function parseCoordsFromGoogleMapsInput(rawInput: string): ParsedCoordina
 }
 
 export function isShortGoogleMapsUrl(rawUrl: string): boolean {
-  const trimmed = (rawUrl || '').trim();
-  if (!trimmed) return false;
+  const clean = extractGoogleMapsUrlFromText(rawUrl) || (rawUrl || '').trim();
+  if (!clean) return false;
   try {
-    const parsed = new URL(trimmed);
+    const parsed = new URL(clean);
     const host = parsed.hostname.toLowerCase();
     return (
       host === 'maps.app.goo.gl' ||
@@ -111,16 +131,16 @@ export function isShortGoogleMapsUrl(rawUrl: string): boolean {
 export async function resolveGoogleMapsUrlCoords(
   rawUrl: string,
 ): Promise<{ lat: number; lng: number; resolvedUrl?: string } | null> {
-  const direct = parseCoordsFromGoogleMapsInput(rawUrl);
+  const clean = extractGoogleMapsUrlFromText(rawUrl) || (rawUrl || '').trim();
+  const direct = parseCoordsFromGoogleMapsInput(clean);
   if (direct) {
-    return { ...direct, resolvedUrl: rawUrl.trim() };
+    return { ...direct, resolvedUrl: clean };
   }
 
-  const trimmed = (rawUrl || '').trim();
-  if (!trimmed || !/^https?:\/\//i.test(trimmed)) return null;
+  if (!clean || !/^https?:\/\//i.test(clean)) return null;
 
   try {
-    const res = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(trimmed)}`);
+    const res = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(clean)}`);
     if (!res.ok) return null;
     const data = (await res.json()) as {
       resolvedUrl?: string;
@@ -130,7 +150,7 @@ export async function resolveGoogleMapsUrlCoords(
       return {
         lat: data.coords.lat,
         lng: data.coords.lng,
-        resolvedUrl: data.resolvedUrl || trimmed,
+        resolvedUrl: data.resolvedUrl || clean,
       };
     }
     if (data.resolvedUrl) {
@@ -162,14 +182,13 @@ export function buildGoogleMapsDirectionsUrl(options: {
   const { venueName, address, lat, lng, placeId, fallbackUrl } = options;
 
   // 1. Preserve explicit Google Maps place/share URL (maps.app.goo.gl, /maps/place/..., etc.)
-  const trimmedFallback = (fallbackUrl || '').trim();
+  const cleanUrl = extractGoogleMapsUrlFromText(fallbackUrl || '');
   if (
-    trimmedFallback &&
-    /^https?:\/\//i.test(trimmedFallback) &&
-    trimmedFallback !== DEFAULT_SEED_MAPS_URL &&
-    !isRawCoordinateSearchUrl(trimmedFallback)
+    cleanUrl &&
+    cleanUrl !== DEFAULT_SEED_MAPS_URL &&
+    !isRawCoordinateMapsUrl(cleanUrl)
   ) {
-    return trimmedFallback;
+    return cleanUrl;
   }
 
   // 2. Explicit coordinates when no named place URL was shared
@@ -179,8 +198,8 @@ export function buildGoogleMapsDirectionsUrl(options: {
   }
 
   // 3. Fallback custom URL (e.g. raw coordinate query URL)
-  if (trimmedFallback && /^https?:\/\//i.test(trimmedFallback)) {
-    return trimmedFallback;
+  if (cleanUrl) {
+    return cleanUrl;
   }
 
   // 4. Text search fallback only when neither URL nor coords were provided

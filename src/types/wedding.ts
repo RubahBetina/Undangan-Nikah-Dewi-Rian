@@ -143,6 +143,7 @@ export interface WeddingSettings {
   musicEnabled: boolean;
   musicUrl: string;
   musicTitle: string;
+  registrationLocked?: boolean;
   typography: TypographySettings;
   storyMilestones: StoryMilestone[];
 }

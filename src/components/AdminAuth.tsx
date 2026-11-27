@@ -1,13 +1,17 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, LogIn, UserPlus } from 'lucide-react';
 import { dataService } from '../services/dataService.ts';
 import type { AdminUser } from '../types/wedding.ts';
 
 interface AdminAuthProps {
   onAuthenticated: (user: AdminUser) => void;
+  registrationLocked?: boolean;
 }
 
-export function AdminAuth({ onAuthenticated }: AdminAuthProps) {
+export function AdminAuth({
+  onAuthenticated,
+  registrationLocked = true,
+}: AdminAuthProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -19,10 +23,21 @@ export function AdminAuth({ onAuthenticated }: AdminAuthProps) {
 
   const backendMode = dataService.getBackendMode();
 
+  useEffect(() => {
+    if (registrationLocked && mode === 'register') {
+      setMode('login');
+    }
+  }, [registrationLocked, mode]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setNotice(null);
+    if (mode === 'register' && registrationLocked) {
+      setError('Pendaftaran akun admin baru sedang dikunci.');
+      setMode('login');
+      return;
+    }
     setLoading(true);
     try {
       if (mode === 'login') {
@@ -94,18 +109,28 @@ export function AdminAuth({ onAuthenticated }: AdminAuthProps) {
           </button>
           <button
             type="button"
+            disabled={registrationLocked}
+            title={
+              registrationLocked
+                ? 'Pendaftaran akun baru dikunci oleh Admin. Login terlebih dahulu untuk membuka kunci.'
+                : 'Daftar Akun Baru'
+            }
             onClick={() => {
+              if (registrationLocked) return;
               setMode('register');
               setError(null);
               setNotice(null);
             }}
-            className={`py-2 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-              mode === 'register'
-                ? 'bg-white text-[#3A2D32] shadow-xs'
-                : 'text-[#6E5D63] hover:text-[#3A2D32]'
+            className={`py-2 text-xs font-medium rounded-lg transition-colors inline-flex items-center justify-center gap-1.5 ${
+              registrationLocked
+                ? 'text-[#9B8B90] opacity-60 cursor-not-allowed select-none'
+                : mode === 'register'
+                  ? 'bg-white text-[#3A2D32] shadow-xs cursor-pointer'
+                  : 'text-[#6E5D63] hover:text-[#3A2D32] cursor-pointer'
             }`}
           >
-            Daftar Akun Baru
+            {registrationLocked && <Lock className="w-3 h-3 shrink-0" />}
+            <span>Daftar Akun Baru</span>
           </button>
         </div>
 
@@ -213,33 +238,55 @@ export function AdminAuth({ onAuthenticated }: AdminAuthProps) {
         </form>
 
         {backendMode === 'express' ? (
-          <div className="mt-6 pt-5 border-t border-[#EFE8E4] flex items-center justify-between gap-3">
-            <div className="text-[11px] text-[#6E5D63] leading-relaxed">
-              Akun bawaan siap pakai: <span className="font-medium text-[#3A2D32]">admin@atelierfleur.id</span>
+          <div className="mt-6 pt-5 border-t border-[#EFE8E4] space-y-2.5">
+            {registrationLocked && (
+              <p className="text-[11px] text-[#6E5D63] flex items-center gap-1.5 leading-relaxed">
+                <Lock className="w-3 h-3 text-[#C47D8E] shrink-0" />
+                <span>
+                  Pendaftaran akun baru dikunci. Masuk ke studio untuk membuka kunci sementara.
+                </span>
+              </p>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[11px] text-[#6E5D63] leading-relaxed">
+                Akun bawaan siap pakai:{' '}
+                <span className="font-medium text-[#3A2D32]">admin@atelierfleur.id</span>
+              </div>
+              <button
+                type="button"
+                onClick={fillSeededAccount}
+                className="text-xs font-medium text-[#C47D8E] hover:underline whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Isi Otomatis
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={fillSeededAccount}
-              className="text-xs font-medium text-[#C47D8E] hover:underline whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              Isi Otomatis
-            </button>
           </div>
         ) : (
           <div className="mt-6 pt-5 border-t border-[#EFE8E4] text-[11px] text-[#6E5D63] leading-relaxed">
-            Terhubung ke <span className="font-medium text-[#3A2D32]">Supabase Auth</span>. Untuk pertama kali, gunakan tab{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setMode('register');
-                setError(null);
-                setNotice(null);
-              }}
-              className="font-semibold text-[#C47D8E] hover:underline cursor-pointer"
-            >
-              Daftar Akun Baru
-            </button>{' '}
-            dengan email Anda sendiri (akun bawaan <span className="font-mono">admin@atelierfleur.id</span> hanya untuk mode lokal).
+            {registrationLocked ? (
+              <span className="inline-flex items-start gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-[#C47D8E] shrink-0 mt-0.5" />
+                <span>
+                  Menu <span className="font-medium text-[#3A2D32]">Daftar Akun Baru</span> sedang dikunci untuk menjaga keamanan akses admin. Masuk dengan akun terdaftar untuk membuka kunci kapan saja.
+                </span>
+              </span>
+            ) : (
+              <>
+                Terhubung ke <span className="font-medium text-[#3A2D32]">Supabase Auth</span>. Untuk membuat akun baru, gunakan tab{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('register');
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  className="font-semibold text-[#C47D8E] hover:underline cursor-pointer"
+                >
+                  Daftar Akun Baru
+                </button>{' '}
+                dengan email Anda sendiri (jangan lupa kunci kembali setelah selesai).
+              </>
+            )}
           </div>
         )}
       </div>

@@ -15,8 +15,10 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  DEFAULT_SEED_MAPS_URL,
   buildGoogleMapsDirectionsUrl,
-  isShortGoogleMapsUrl,
+  extractGoogleMapsUrlFromText,
+  isRawCoordinateMapsUrl,
   parseCoordsFromGoogleMapsInput,
   resolveGoogleMapsUrlCoords,
 } from '../lib/googleMaps.ts';
@@ -139,9 +141,11 @@ export function AdminSettingsPanel({
     }
   };
 
-  const handleMapsUrlChange = (nextUrl: string) => {
+  const handleMapsUrlChange = (rawInput: string) => {
+    const extracted = extractGoogleMapsUrlFromText(rawInput);
+    const nextUrl = extracted ?? rawInput;
     const direct = parseCoordsFromGoogleMapsInput(nextUrl);
-    if (direct) {
+    if (direct && isRawCoordinateMapsUrl(nextUrl)) {
       setForm((prev) => ({
         ...prev,
         mapsUrl: nextUrl,
@@ -151,8 +155,8 @@ export function AdminSettingsPanel({
       }));
       setCoordsInput(`${direct.lat.toFixed(6)}, ${direct.lng.toFixed(6)}`);
       setMapsResolveStatus({
-        type: 'success',
-        text: `Titik pin terbaca otomatis (${direct.lat.toFixed(5)}, ${direct.lng.toFixed(5)}).`,
+        type: 'info',
+        text: `Terdeteksi link koordinat (${direct.lat.toFixed(5)}, ${direct.lng.toFixed(5)}). Jika ingin nama tempat muncul, tempel link "Bagikan" tempat dari Google Maps.`,
       });
       return;
     }
@@ -256,27 +260,8 @@ export function AdminSettingsPanel({
     const brideFirst = form.brideFullName.trim().split(/\s+/)[0] || 'Mempelai Wanita';
     const groomFirst = form.groomFullName.trim().split(/\s+/)[0] || 'Mempelai Pria';
 
-    let nextVenueLat = form.venueLat;
-    let nextVenueLng = form.venueLng;
-    if (
-      (typeof nextVenueLat !== 'number' || typeof nextVenueLng !== 'number') &&
-      isShortGoogleMapsUrl(form.mapsUrl)
-    ) {
-      try {
-        const resolved = await resolveGoogleMapsUrlCoords(form.mapsUrl);
-        if (resolved) {
-          nextVenueLat = resolved.lat;
-          nextVenueLng = resolved.lng;
-        }
-      } catch {
-        // Non-blocking: mapsUrl itself still works
-      }
-    }
-
     const payload: WeddingSettings = {
       ...form,
-      venueLat: nextVenueLat,
-      venueLng: nextVenueLng,
       coupleHeadline: `${groomFirst} & ${brideFirst}`,
       giftBankName: form.giftAccounts?.[0]?.bankName ?? form.giftBankName,
       giftAccountNumber: form.giftAccounts?.[0]?.accountNumber ?? form.giftAccountNumber,
@@ -744,21 +729,17 @@ export function AdminSettingsPanel({
             </label>
             <div className="flex gap-2">
               <input
-                type="url"
+                type="text"
                 value={form.mapsUrl}
                 onChange={(e) => handleMapsUrlChange(e.target.value)}
-                onBlur={(e) => {
-                  if (isShortGoogleMapsUrl(e.target.value)) {
-                    void handleResolveMapsUrl(e.target.value);
-                  }
-                }}
-                placeholder="https://maps.app.goo.gl/... atau https://www.google.com/maps/..."
+                placeholder="https://maps.app.goo.gl/... atau teks bagikan dari Google Maps"
                 className="flex-1 min-w-0 rounded-xl border border-[#DFD6D1] bg-[#FBF8F6] px-3.5 py-2 text-xs"
               />
               <button
                 type="button"
                 onClick={() => void handleResolveMapsUrl()}
                 disabled={resolvingMapsUrl || !form.mapsUrl.trim()}
+                title="Opsional: ekstrak angka koordinat dari link"
                 className="inline-flex items-center gap-1.5 rounded-xl border border-[#DFD6D1] bg-white px-3 py-2 text-xs font-medium text-[#3A2D32] hover:bg-[#FBF8F6] disabled:opacity-50 cursor-pointer shrink-0"
               >
                 {resolvingMapsUrl ? (
@@ -773,7 +754,7 @@ export function AdminSettingsPanel({
 
           <div>
             <label className="block text-xs font-medium text-[#3A2D32] mb-1.5">
-              Koordinat Pin Akurat (Latitude, Longitude)
+              Koordinat Pin (Opsional, Jika Tanpa Link Tempat)
             </label>
             <input
               type="text"
@@ -784,6 +765,33 @@ export function AdminSettingsPanel({
             />
           </div>
         </div>
+
+        {(() => {
+          const cleanUrl = extractGoogleMapsUrlFromText(form.mapsUrl);
+          const isNamedShareLink =
+            Boolean(cleanUrl) &&
+            cleanUrl !== DEFAULT_SEED_MAPS_URL &&
+            !isRawCoordinateMapsUrl(cleanUrl || '');
+          const effectivePreview = buildGoogleMapsDirectionsUrl({
+            venueName: form.akadVenue,
+            address: form.akadAddress,
+            lat: form.venueLat,
+            lng: form.venueLng,
+            placeId: form.venuePlaceId,
+            fallbackUrl: form.mapsUrl,
+          });
+          return isNamedShareLink ? (
+            <p className="rounded-lg border border-[#D4E2D8] bg-[#ECF2ED] px-3 py-2 text-[11px] text-[#3B5B47] break-all">
+              <strong>✓ Link Tempat Aktif:</strong> Tombol tamu akan membuka persis link Anda:{' '}
+              <span className="font-mono">{effectivePreview}</span>
+            </p>
+          ) : (
+            <p className="rounded-lg border border-[#E7C6CE] bg-[#FBF1F3] px-3 py-2 text-[11px] text-[#8F3A4E] leading-relaxed">
+              <strong>⚠ Link saat ini berupa koordinat / setelan awal:</strong>{' '}
+              <span className="font-mono break-all">{effectivePreview}</span>. Jika ingin tempat bernama yang muncul di Google Maps, tempel ulang link <strong>Bagikan</strong> (<code className="px-1 rounded bg-white">https://maps.app.goo.gl/...</code>) dari aplikasi Google Maps ke kolom <strong>Link Google Maps</strong> di atas lalu klik <strong>Simpan Pengaturan</strong>.
+            </p>
+          );
+        })()}
 
         {mapsResolveStatus && (
           <p

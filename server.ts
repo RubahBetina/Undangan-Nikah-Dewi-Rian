@@ -392,6 +392,10 @@ async function startServer() {
   });
 
   app.post('/api/auth/register', (req, res) => {
+    if (db.settings.registrationLocked !== false) {
+      res.status(403).json({ error: 'Pendaftaran akun admin baru sedang dikunci.' });
+      return;
+    }
     const { name, email, password } = req.body as {
       name?: string;
       email?: string;

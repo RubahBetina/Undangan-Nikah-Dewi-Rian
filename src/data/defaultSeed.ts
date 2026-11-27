@@ -908,6 +908,7 @@ export const DEFAULT_SETTINGS: WeddingSettings = {
   musicEnabled: true,
   musicUrl: '',
   musicTitle: 'Melodi Taman Pastel (Instrumental)',
+  registrationLocked: true,
   typography: DEFAULT_TYPOGRAPHY,
   storyMilestones: [
     {

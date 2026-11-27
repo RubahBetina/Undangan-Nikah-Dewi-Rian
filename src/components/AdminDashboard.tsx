@@ -5,8 +5,10 @@ import {
   ExternalLink,
   Image as ImageIcon,
   Layers,
+  Lock,
   LogOut,
   Settings,
+  Unlock,
   Users,
 } from 'lucide-react';
 import schemaSqlRaw from '../../supabase/schema.sql?raw';
@@ -172,6 +174,33 @@ export function AdminDashboard({
     }
   };
 
+  const isRegistrationLocked = bundle.settings.registrationLocked !== false;
+
+  const handleToggleRegistrationLock = async () => {
+    const nextLocked = !isRegistrationLocked;
+    setSaving(true);
+    try {
+      const saved = await dataService.updateSettings({
+        ...bundle.settings,
+        registrationLocked: nextLocked,
+      });
+      onBundleChange({ ...bundle, settings: saved });
+      showToast(
+        nextLocked
+          ? 'Menu Daftar Akun Baru dikunci.'
+          : 'Menu Daftar Akun Baru dibuka sementara. Jangan lupa kunci kembali setelah selesai.',
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : 'Gagal mengubah kunci pendaftaran akun.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleAddAssetToCanvas = (asset: MediaAsset) => {
     const newEl: CanvasElement = {
       id: `el-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -318,7 +347,12 @@ export function AdminDashboard({
   }
 
   if (!user) {
-    return <AdminAuth onAuthenticated={(u) => setUser(u)} />;
+    return (
+      <AdminAuth
+        onAuthenticated={(u) => setUser(u)}
+        registrationLocked={isRegistrationLocked}
+      />
+    );
   }
 
   const navItems: Array<{ id: AdminTab; label: string; icon: typeof Layers }> = [
@@ -386,6 +420,35 @@ export function AdminDashboard({
           </p>
           <button
             type="button"
+            disabled={saving}
+            onClick={() => void handleToggleRegistrationLock()}
+            className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-colors cursor-pointer disabled:opacity-60 mb-1.5 ${
+              isRegistrationLocked
+                ? 'bg-[#F4EEEC] text-[#3A2D32] hover:bg-[#EAE1DE]'
+                : 'bg-[#ECF2ED] text-[#3B5B47] hover:bg-[#DCE9DF]'
+            }`}
+            title={
+              isRegistrationLocked
+                ? 'Klik untuk membuka sementara tombol Daftar Akun Baru'
+                : 'Klik untuk mengunci kembali tombol Daftar Akun Baru'
+            }
+          >
+            <span className="inline-flex items-center gap-2">
+              {isRegistrationLocked ? (
+                <Lock className="w-3.5 h-3.5 text-[#C47D8E]" />
+              ) : (
+                <Unlock className="w-3.5 h-3.5 text-[#3B5B47]" />
+              )}
+              <span>
+                {isRegistrationLocked ? 'Daftar Akun: Terkunci' : 'Daftar Akun: Terbuka'}
+              </span>
+            </span>
+            <span className="text-[10px] underline">
+              {isRegistrationLocked ? 'Buka' : 'Kunci'}
+            </span>
+          </button>
+          <button
+            type="button"
             onClick={() => void handleLogout()}
             className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-[#6E5D63] hover:text-[#8F3A4E] hover:bg-[#FBF8F6] transition-colors cursor-pointer"
           >
@@ -405,7 +468,30 @@ export function AdminDashboard({
             <span className="font-semibold text-[#3A2D32]">{activeLabel}</span>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void handleToggleRegistrationLock()}
+              className={`lg:hidden inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors cursor-pointer disabled:opacity-60 ${
+                isRegistrationLocked
+                  ? 'border-[#DFD6D1] bg-[#F4EEEC] text-[#3A2D32]'
+                  : 'border-[#CFE0D4] bg-[#ECF2ED] text-[#3B5B47]'
+              }`}
+              title={
+                isRegistrationLocked
+                  ? 'Klik untuk membuka tombol Daftar Akun Baru'
+                  : 'Klik untuk mengunci tombol Daftar Akun Baru'
+              }
+            >
+              {isRegistrationLocked ? (
+                <Lock className="w-3.5 h-3.5 text-[#C47D8E]" />
+              ) : (
+                <Unlock className="w-3.5 h-3.5 text-[#3B5B47]" />
+              )}
+              <span>{isRegistrationLocked ? 'Daftar Terkunci' : 'Daftar Terbuka'}</span>
+            </button>
+
             <a
               href="/"
               target="_blank"
